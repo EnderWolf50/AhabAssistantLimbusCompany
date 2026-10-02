@@ -370,6 +370,28 @@ class Automation(metaclass=SingletonMeta):
     # 画面静止检测：缩略灰度图的平均像素差低于该值视为静止（0-255）
     STABLE_DIFF = 2.0
 
+    # 持续有输入、但画面超过这么多秒完全没变化，视为游戏卡死
+    FROZEN_SCREEN_LIMIT = 45
+
+    def _watch_frozen(self, img: Image) -> None:
+        thumb = self._thumbnail(img)
+        prev = getattr(self, "_frozen_watch_thumb", None)
+        if prev is None or float(np.abs(thumb - prev).mean()) > 0.5:
+            self._last_screen_change = time.time()
+        self._frozen_watch_thumb = thumb
+
+    def screen_frozen(self) -> bool:
+        """最近一次画面变化之后仍有输入，且画面已超过 FROZEN_SCREEN_LIMIT 秒没有变化。"""
+        changed = getattr(self, "_last_screen_change", None)
+        return (
+            changed is not None
+            and self._last_input_time > changed
+            and time.time() - changed > self.FROZEN_SCREEN_LIMIT
+        )
+
+    def reset_frozen_watch(self) -> None:
+        self._last_screen_change = time.time()
+
     @staticmethod
     def _thumbnail(img: Image) -> np.ndarray:
         return np.asarray(img.convert("L").resize((128, 72)), dtype=np.int16)
@@ -436,6 +458,7 @@ class Automation(metaclass=SingletonMeta):
                 if result:
                     self.screenshot = result
                     self.last_screenshot_time = time.time()
+                    self._watch_frozen(result)
                     return result
                 else:
                     return None

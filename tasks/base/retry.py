@@ -145,8 +145,15 @@ def retry():
     首轮检查复用调用方刚截取、且之后没有发生输入的截图，避免再等一次 screenshot_interval；
     之后的循环（处理过弹窗或重启后）始终刷新截图，避免复用旧帧导致误判。
     距上次完整检查不足 RETRY_CHECK_INTERVAL 秒时直接返回。
+    画面在持续操作下长时间不变（游戏卡死）时重启游戏并返回 False。
     """
     global _last_retry_check_time
+    if auto.screen_frozen():
+        log.warning(f"持续操作但画面超过 {auto.FROZEN_SCREEN_LIMIT} 秒没有变化，判定游戏卡死，尝试关闭重启游戏")
+        auto.reset_frozen_watch()
+        kill_game()
+        restart_game()
+        return False
     if time.time() - _last_retry_check_time < RETRY_CHECK_INTERVAL:
         return None
     start_time = time.time()

@@ -887,7 +887,8 @@ class Shop:
             if system_sell:
                 for sell_system in self.shop_sell_list:
                     my_sell_system = f"mirror/shop/enhance_gifts/{sell_system}.png"
-                    if sell_gift := auto.find_element(my_sell_system):
+                    # 出售不可逆：门槛 0.9。0.8 时曾把其他体系的饰品以 0.826 误认为要卖的体系
+                    if sell_gift := auto.find_element(my_sell_system, threshold=0.9):
                         if second is not None and protect_coordinates(sell_gift, second):
                             continue
                         else:

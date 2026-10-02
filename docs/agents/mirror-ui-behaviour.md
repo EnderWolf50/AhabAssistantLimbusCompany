@@ -35,7 +35,7 @@ Facts about the Limbus Company mirror dungeon UI on MuMu (English client, 2560×
 
 ## Floor map
 
-- Keyboard navigation plans the whole floor once (YOLO node detection + road templates + Dijkstra; lowest total node weight: event 1 < shop 2 < battle 4 < boss 6; focused, abnormality-focused and risky encounters 50 (`AVOID_NODE_WEIGHT`) so any route that avoids them wins) and then presses one arrow per node. The press shows the node's "Enter" button within ~0.6 s.
+- Keyboard navigation plans the whole floor once (YOLO node detection + road templates + Dijkstra; lowest total node weight, preference order event 1 < shop 2 < battle 3 < focused / abnormality-focused 4 < risky 5 (boss 6)) and then presses one arrow per node. The press shows the node's "Enter" button within ~0.6 s.
 - A failed node entry must re-plan; the popped route is otherwise out of sync with the bus.
 - First step of a floor: the bus is at the start, so the "click bus, look for Enter" probe is skipped there.
 

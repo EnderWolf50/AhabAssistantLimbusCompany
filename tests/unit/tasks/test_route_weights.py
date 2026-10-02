@@ -1,33 +1,31 @@
+import pytest
+
 from tasks.mirror.search_road import RouteGraph, Row
 
 # 2560x1440 坐标：行距 437，bus 在中行 y=730
 BUS = (80, 730)
-TOP, MID, BOT = 293, 730, 1167
+TOP, BOT = 293, 1167
 
 
-def _route(columns, connections):
-    graph = RouteGraph(columns, bus_row=Row.MID, bus_position=BUS)
-    graph.init_road(connections)
+def _first_step(top_class, bottom_class):
+    """bus 后一列只有上、下两个节点（都连到 bus），返回路线选的那个。"""
+    graph = RouteGraph([[[top_class, (605, TOP)], [bottom_class, (605, BOT)]]], bus_row=Row.MID, bus_position=BUS)
+    graph.init_road([(1, Row.MID, Row.TOP), (1, Row.MID, Row.BOTTOM)])
     _, path = graph.find_min_weight_route()
-    return [node.node_class for node in path]
+    return path[1].node_class
 
 
-def test_avoids_risky_even_for_an_extra_event():
-    # 上路：事件 → 精英 → 事件；下路：战斗 → 战斗 → 战斗。旧权重下两者总和相同
-    columns = [
-        [["event", (605, TOP)], ["battle", (605, BOT)]],
-        [["risky_encounter", (1115, TOP)], ["battle", (1115, BOT)]],
-        [["event", (1628, TOP)], ["battle", (1628, BOT)]],
-    ]
-    connections = [
-        (1, Row.MID, Row.TOP), (1, Row.MID, Row.BOTTOM),
-        (2, Row.TOP, Row.TOP), (2, Row.BOTTOM, Row.BOTTOM),
-        (3, Row.TOP, Row.TOP), (3, Row.BOTTOM, Row.BOTTOM),
-    ]
-    assert "risky_encounter" not in _route(columns, connections)
-
-
-def test_prefers_events_when_nothing_to_avoid():
-    columns = [[["event", (605, TOP)], ["battle", (605, BOT)]]]
-    connections = [(1, Row.MID, Row.TOP), (1, Row.MID, Row.BOTTOM)]
-    assert _route(columns, connections)[1] == "event"
+# 偏好依序：事件 < 商店 < 一般战斗 < 集中/异想体集中 < 精英
+@pytest.mark.parametrize(
+    "better, worse",
+    [
+        ("event", "shop"),
+        ("shop", "battle"),
+        ("battle", "focused_encounter"),
+        ("battle", "abnormality_focused_encounter"),
+        ("focused_encounter", "risky_encounter"),
+    ],
+)
+def test_node_preference_order(better, worse):
+    assert _first_step(better, worse) == better
+    assert _first_step(worse, better) == better

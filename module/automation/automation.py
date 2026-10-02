@@ -364,8 +364,6 @@ class Automation(metaclass=SingletonMeta):
 
     # 画面静止检测：缩略灰度图的平均像素差低于该值视为静止（0-255）
     STABLE_DIFF = 2.0
-    # 发生输入后至少等待这么久才接受“静止”，避免拿到输入前的旧画面而重复点击
-    POST_INPUT_MIN_WAIT = 0.3
 
     @staticmethod
     def _thumbnail(img: Image) -> np.ndarray:
@@ -378,12 +376,14 @@ class Automation(metaclass=SingletonMeta):
         max_interval 与原 screenshot_interval 相同，因此不会比固定间隔更慢。
         """
         min_interval = cfg.screenshot_min_interval if cfg.screenshot_min_interval else 0.1
+        # 发生输入后至少等待这么久才接受“静止”，避免拿到输入前的旧画面而重复点击
+        post_input_wait = cfg.post_input_min_wait
         deadline = self.last_screenshot_time + max_interval
         prev = getattr(self, "_stable_prev_thumb", None)
         prev_time = getattr(self, "_stable_prev_time", 0.0)
         while True:
             now = time.time()
-            wait = max(min_interval - (now - prev_time), self.POST_INPUT_MIN_WAIT - (now - self._last_input_time), 0)
+            wait = max(min_interval - (now - prev_time), post_input_wait - (now - self._last_input_time), 0)
             if wait > 0:
                 time.sleep(wait)
             with self._screenshot_lock:

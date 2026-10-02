@@ -14,6 +14,10 @@ from utils.utils import check_game_running
 
 _last_title_screen_tap_time = 0.0
 _last_simulator_alive_check_time = 0.0
+# 业务循环几乎每轮都调用 retry()；上次完整检查后这么久内直接返回，省掉每轮的弹窗模板比对。
+# 弹窗最多晚这么久才被处理（服务器重试弹窗另有 retry_monitor 每 0.5 秒检查）
+RETRY_CHECK_INTERVAL = 1.0
+_last_retry_check_time = 0.0
 
 
 def ensure_simulator_game_started() -> bool:
@@ -140,7 +144,11 @@ def retry():
 
     首轮检查复用调用方刚截取、且之后没有发生输入的截图，避免再等一次 screenshot_interval；
     之后的循环（处理过弹窗或重启后）始终刷新截图，避免复用旧帧导致误判。
+    距上次完整检查不足 RETRY_CHECK_INTERVAL 秒时直接返回。
     """
+    global _last_retry_check_time
+    if time.time() - _last_retry_check_time < RETRY_CHECK_INTERVAL:
+        return None
     start_time = time.time()
     is_windows = not cfg.config.simulator
     if is_windows:
@@ -172,11 +180,8 @@ def retry():
         if auto.click_element("base/retry.png", threshold=0.9):
             auto.mouse_to_blank()
             continue
-        if (
-            auto.find_element("base/retry_countdown.png")
-            or auto.find_element("base/retry.png")
-            or auto.find_element("base/try_again.png")
-        ):
+        # retry_countdown 与阈值 0.9 的 retry 已在上面比对过，这里只补阈值 0.8 的 retry 和 try_again
+        if auto.find_element("base/retry.png") or auto.find_element("base/try_again.png"):
             auto.click_element("base/retry.png", threshold=0.9)
             continue
         if auto.find_element("base/clear_all_caches_assets.png", model="clam"):
@@ -192,6 +197,7 @@ def retry():
 
                 init_game()
             continue
+        _last_retry_check_time = time.time()
         break
 
 

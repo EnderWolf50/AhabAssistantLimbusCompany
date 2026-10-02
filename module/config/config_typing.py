@@ -336,6 +336,9 @@ class ConfigModel(BaseModel):
     screenshot_min_interval: float
     """画面静止检测时的最短截图间隔"""
 
+    post_input_min_wait: float
+    """画面静止检测：输入后至少等待多久才接受“静止”"""
+
     recognition_scale: float
     """模板匹配前对截图与模板的缩放比例（1.0 为不缩放）"""
 

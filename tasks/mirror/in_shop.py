@@ -817,7 +817,9 @@ class Shop:
             if auto.click_element("mirror/shop/sell_gift_assets.png"):
                 continue
 
-            if auto.click_element("mirror/shop/sell_gift_confirm_assets.png"):
+            # 确认按钮的 ✓ 会随按钮文字长度偏移（英文 Confirm 比中文 确认 长，约左移 34px），
+            # clam 模式搜索范围不够，英文/模拟器下只有 0.79；normal 模式为 0.997
+            if auto.click_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"):
                 sleep(1)
                 continue
 

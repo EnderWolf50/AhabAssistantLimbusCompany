@@ -43,6 +43,7 @@ class Battle:
         self.defense_all_time = False
         self.fail_times = 0
         self.cur_turn = 1
+        self._last_center_click = 0.0
         self.is_tool = is_tool
         """是否由小工具初始化"""
 
@@ -84,28 +85,6 @@ class Battle:
                 return False
             if click:
                 break
-
-    @staticmethod
-    def _update_wait_time(time: float = None, fail_flag: bool = False, total_count: int = 1):
-        MAX_WAITING = 3.0  # 最大等待时间
-        MIN_WAITING = 0.5  # 最小等待时间
-        INIT_WAITING = 1.5  # 初始等待时间
-        fail_adjust = 0.5
-        success_adjust = -0.2
-        if time is None:
-            return INIT_WAITING
-
-        total_count = total_count if total_count > 0 else 1  # 防止除0
-        adjust = fail_adjust if fail_flag else success_adjust
-        new_time = time + adjust / (total_count**0.5)  # 平方根调整
-
-        new_time = min(new_time, MAX_WAITING)  # 防止超过最大等待时间
-        new_time = max(new_time, MIN_WAITING)  # 防止低于最小等待时间
-        if fail_flag:
-            msg = f"匹配失败，等待时间从{time:.3f}调整为{new_time:.3f}"
-            log.debug(msg)
-
-        return new_time
 
     def _battle_operation(
         self,
@@ -201,7 +180,6 @@ class Battle:
         prioritize_skill_3=False,
     ):
         chance = self.INIT_CHANCE
-        waiting = self._update_wait_time()
         total_count = 0
         fail_count = 0
         in_mirror = False
@@ -269,7 +247,7 @@ class Battle:
 
             # 如果正在交战过程
             if auto.find_element("battle/pause_assets.png"):
-                sleep(2 * waiting)  # 战斗播片中增大间隔
+                sleep(0.5)  # 战斗播片中：短间隔轮询，暂停按钮一消失就进入下一步（原为随失败次数增长的 2*waiting）
                 chance = self.INIT_CHANCE
                 first_turn = False
                 defense_for_solo_used_this_turn = False
@@ -357,14 +335,12 @@ class Battle:
                 if "turn" in ocr_result:
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     self.identify_keyword_turn = False
                     continue
             elif fail_count >= 5:
                 if auto.click_element("battle/turn_assets.png") or auto.find_element("battle/win_rate_assets.png"):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     continue
             else:
                 if auto.find_element("battle/more_information_assets.png") or auto.find_element(
@@ -372,7 +348,6 @@ class Battle:
                 ):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     continue
             if chance < 5:
                 if not infinite_battle:
@@ -394,7 +369,6 @@ class Battle:
                 ):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     continue
             if chance == 1:
                 if not infinite_battle:
@@ -402,16 +376,11 @@ class Battle:
                 if auto.find_language_text("胜率", "rate"):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
-                    sleep(1)
-                    if not auto.find_element("battle/pause_assets.png"):
-                        self.mouse_click_rate = True
                     continue
             if self.mouse_click_rate:
                 if auto.find_element("battle/win_rate_card.png", threshold=0.75):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
 
             # 如果战斗中途出现事件
             if (
@@ -479,8 +448,11 @@ class Battle:
                 height = cfg.set_win_size
                 center_x = width // 2
                 center_y = height // 2
-                auto.mouse_click(center_x - random_number, center_y + random_number, times=1)
-                sleep(0.15)
+                # 轮询变快后限频：最多每秒点一次，避免误开角色状态页
+                if time.time() - self._last_center_click >= 1.0:
+                    auto.mouse_click(center_x - random_number, center_y + random_number, times=1)
+                    self._last_center_click = time.time()
+                    sleep(0.15)
 
             # 战斗结束，进入结算页面
             if auto.click_element("battle/battle_finish_confirm_assets.png", click=False) or auto.find_element(
@@ -526,9 +498,7 @@ class Battle:
                 return False
 
             chance -= 1
-            sleep(waiting)
-            # 更新等待时间
-            waiting = self._update_wait_time(waiting, True, total_count)
+            sleep(0.3)  # 过场中短间隔轮询（原为随失败次数增长、最长 3 秒的 waiting）
             # 统计失败次数
             fail_count += 1
             if chance < 0:

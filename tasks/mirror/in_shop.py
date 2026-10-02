@@ -72,6 +72,18 @@ class Shop:
         pass
 
     @staticmethod
+    def _power_up_confirm_enabled() -> bool:
+        """升级确认框的 Confirm 是否可按（钱够）。
+
+        灰色与可按的按钮形状相同，模板匹配都是 0.999，只能看亮度：
+        实测可按时按钮区 95 分位亮度约 206，钱不够变灰时约 56。
+        """
+        scale = cfg.set_win_size / 1440
+        box = tuple(v * scale for v in (1533, 1151, 1684, 1183))
+        button = np.asarray(auto.screenshot.convert("L").crop(box))
+        return float(np.percentile(button, 95)) > 120
+
+    @staticmethod
     def _goods_box():
         """商店商品列表区域（2560x1440 下约 1040,420 - 2360,1030）"""
         scale = cfg.set_win_size / 1440
@@ -115,7 +127,7 @@ class Shop:
                     auto.mouse_click(x * scale, 1022 * scale)
                     # 等金额预览按所选等级刷新；该等级已选中或不可选时预览不变，最多等 0.5 秒
                     auto.wait_until(lambda: np.abs(preview() - before).mean() > 2, 0.5)
-                    if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
+                    if self._power_up_confirm_enabled():
                         break
                 else:
                     log.debug("剩余金钱不足以升级，停止升级其他饰品")

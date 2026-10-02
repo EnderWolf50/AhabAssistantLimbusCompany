@@ -337,9 +337,9 @@ class Shop:
                     sleep(0.5)
                     auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
                     for _ in range(3):
-                        if auto.find_element(
-                            "mirror/shop/refresh_keyword_confirm_assets.png",
-                            take_screenshot=True,
+                        # 等面板关闭（最多 1.5 秒）仍未关闭才算未生效；只截一张图会拿到点击前的画面而误判
+                        if not auto.wait_until(
+                            lambda: not auto.find_element("mirror/shop/refresh_keyword_confirm_assets.png"), 1.5
                         ):
                             log.debug("关键词刷新确认未生效，重试中")
                             sleep(0.5)

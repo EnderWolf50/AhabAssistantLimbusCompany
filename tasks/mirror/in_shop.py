@@ -122,10 +122,6 @@ class Shop:
                 if retry() is False:
                     raise self.RestartGame()
                 log.debug(f"饰品升级到 {tier}")
-                if tier == "+":
-                    # ++ 的钱不够才会选 +：剩下的钱也不够再升其他饰品到 ++，直接结束升级流程
-                    log.debug("经费不足以升到 ++，停止升级其他饰品")
-                    return False
                 return True
             if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                 return False

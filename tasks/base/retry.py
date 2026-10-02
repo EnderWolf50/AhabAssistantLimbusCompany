@@ -155,6 +155,10 @@ def retry():
         restart_game()
         return False
     if time.time() - _last_retry_check_time < RETRY_CHECK_INTERVAL:
+        # 跳过弹窗检查，但仍保证当前截图是新的：back_init_menu 等循环自己不截图，靠 retry() 刷新画面，
+        # 否则会一直对着同一张旧图判断（重启游戏后 10 秒内就耗尽次数，陷入反复重启）
+        if not auto.screenshot_is_fresh(cfg.screenshot_interval or 0.85):
+            auto.take_screenshot()
         return None
     start_time = time.time()
     is_windows = not cfg.config.simulator

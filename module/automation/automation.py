@@ -524,10 +524,18 @@ class Automation(metaclass=SingletonMeta):
                 return False
 
     def take_color_snapshot(self) -> np.ndarray | None:
-        """额外截一张彩色图（RGB），不替换 self.screenshot，供需要颜色的判断使用。"""
+        """额外截一张彩色图（RGB），不替换 self.screenshot，供需要颜色的判断使用。
+
+        MuMu 的彩色截图实际是 BGR（与 adb screencap 对比：红蓝互换后差异 25.7 -> 13.9），这里统一成 RGB。
+        """
         with self._screenshot_lock:
             img = ScreenShot.take_screenshot(False)
-        return np.asarray(img.convert("RGB")) if img is not None else None
+        if img is None:
+            return None
+        color = np.asarray(img.convert("RGB"))
+        if cfg.simulator and cfg.simulator_type == 0:
+            color = color[:, :, ::-1]
+        return color
 
     def wait_until(self, condition, timeout: float):
         """连续截图直到 condition() 为真或超过 timeout 秒，返回 condition() 最后一次的结果。

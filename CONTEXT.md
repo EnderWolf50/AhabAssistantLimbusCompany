@@ -59,7 +59,8 @@ Config switches that change the flow: `floor_3_exit` (leave after floor 3), `inf
 
 - **Sinners** (罪人): the 12 playable characters (YiSang, Faust, DonQuixote, Ryoshu, Meursault, HongLu, Heathcliff, Ishmael, Rodion, Sinclair, Outis, Gregor). An **Identity** is a sinner's variant with its own skills. A **team** is a saved formation picked before a mirror (`teams` config, team codes, `team_formation.py`).
 - **Turn**: each sinner gets skill slots; the player assigns skills, then starts the turn. **P** = auto-assign by win rate, **Enter** = start (AALC's default "P+Enter"). The **pause** button is visible only while a turn plays.
-- **Defense**: switching every slot to its defense skill, then linking (`_defense_this_round`). Used on turn 1 (`defense_on_turn1`), always (`defense_all_time`), or for the first 5 turns of a mirror in the 小指良单通 setup (`DefenseForSoloState`, 小指良单通连续防御).
+- **Defense**: switching every slot to its defense skill, then linking (`_defense_this_round`). Used on turn 1 (`defense_on_turn1`), always (`defense_all_time`), or for a limited number of turns per mirror for **小指良单通** (`DefenseForSoloState`, log `小指良单通连续防御`; limit `DEFENSE_FOR_SOLO_TURN_LIMIT`).
+- **小指良单通**: a play style that clears the normal mirror solo with one specific Ryoshu identity (小指良). AALC's support for it makes the team defend for the first turns of each mirror; a turn counts only if the turn actually started.
 - **Chain / skill 3** (`_chain_battle`, `avoid_skill_3`, `prioritize_skill_3`): link slots by dragging to choose upper/lower (skill 3) rows.
 
 ## Code map

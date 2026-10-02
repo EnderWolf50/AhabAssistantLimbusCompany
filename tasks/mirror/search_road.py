@@ -618,14 +618,18 @@ def divide_the_area_by_x(data):
     return groups
 
 
+# 路线取总权重最小者：尽量走事件，其次商店，再来一般战斗。
+# 集中/异想体集中/精英遭遇战给远大于其他节点的权重，只要有路线能避开就一定避开，
+# 不会为了多走一个事件而经过它们（旧值 6/7 时“精英 + 事件”与“战斗 + 战斗”同为 8）
+AVOID_NODE_WEIGHT = 50
 all_node_weight = {
     "battle": 4,
     "boss_battle": 6,
     "event": 1,
-    "focused_encounter": 6,
-    "risky_encounter": 7,
+    "focused_encounter": AVOID_NODE_WEIGHT,
+    "risky_encounter": AVOID_NODE_WEIGHT,
     "shop": 2,
-    "abnormality_focused_encounter": 6,
+    "abnormality_focused_encounter": AVOID_NODE_WEIGHT,
 }
 
 DEFAULT_WEIGHT = 999  # 默认不可达权重

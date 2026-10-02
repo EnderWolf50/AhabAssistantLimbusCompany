@@ -108,12 +108,8 @@ class Shop:
                     auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
                     return False
                 auto.click_element("mirror/shop/power_up_confirm_assets.png")
-                # 等确认框消失、升级按钮重新出现（升级完成）
-                auto.wait_until(
-                    lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png")
-                    and auto.find_element("mirror/shop/power_up_assets.png"),
-                    3,
-                )
+                # 等确认框消失（升级完成）；升到满级后升级按钮不再出现，不能以它为条件
+                auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 3)
                 if retry() is False:
                     raise self.RestartGame()
                 log.debug(f"饰品升级到 {tier}")

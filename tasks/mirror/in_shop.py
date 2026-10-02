@@ -1357,6 +1357,8 @@ class Shop:
                 sleep(0.5)
                 auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
                 auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
+                # 等替换面板关闭，否则接着读金钱会读到面板上的文字
+                auto.wait_until(lambda: not three_coins(), 2)
                 # 检测游戏是否异常，若异常则重启游戏
                 if retry() is False:
                     raise self.RestartGame()

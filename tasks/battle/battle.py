@@ -338,7 +338,7 @@ class Battle:
                     self.identify_keyword_turn = False
                     continue
             elif fail_count >= 5:
-                if auto.click_element("battle/turn_assets.png") or auto.find_element("battle/win_rate_assets.png"):
+                if auto.find_element("battle/turn_assets.png") or auto.find_element("battle/win_rate_assets.png"):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
                     continue
@@ -363,7 +363,7 @@ class Battle:
                     ocr_result = ""
                 if (
                     "turn" in ocr_result
-                    or auto.click_element("battle/turn_assets.png")
+                    or auto.find_element("battle/turn_assets.png")
                     or auto.find_element("battle/win_rate_assets.png")
                     or auto.find_element("battle/win_rate_card.png", threshold=0.75)
                 ):

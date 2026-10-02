@@ -101,7 +101,7 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                         min(pack[1] + 390 * scale, cfg.set_win_size),
                     )
                     crop = (top_left[0], top_left[1], bottom_right[0], bottom_right[1])
-                    result = auto.find_language_text(theme_pack_list_zh, theme_pack_list_en, crop)
+                    result = auto.find_language_text(theme_pack_list_zh, theme_pack_list_en, crop, fast=True)
                     if isinstance(result, TextMatchResult):
                         theme_pack_weight = result.value
                         theme_pack_name = result.text

@@ -654,17 +654,17 @@ class Automation(metaclass=SingletonMeta):
                 return ocr_dict[text]
         return False
 
-    def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0):
+    def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0, fast=False):
         # 同一张截图、同一裁剪区域连续识别时复用上次结果（如先查白棉花再查已持有）
         cached = getattr(self, "_last_ocr", None)
-        if cached is not None and cached[0] is self.screenshot and cached[1] == my_crop:
+        if cached is not None and cached[0] is self.screenshot and cached[1] == (my_crop, fast):
             ocr_result = cached[2]
         elif my_crop is not None:
             cropped_image = self.screenshot.crop(my_crop)
-            ocr_result = ocr.run(cropped_image)
+            ocr_result = ocr.run(cropped_image, fast=fast)
         else:
-            ocr_result = ocr.run(self.screenshot)
-        self._last_ocr = (self.screenshot, my_crop, ocr_result)
+            ocr_result = ocr.run(self.screenshot, fast=fast)
+        self._last_ocr = (self.screenshot, (my_crop, fast), ocr_result)
 
         if not ocr_result.txts:
             return False if only_text else {}
@@ -712,6 +712,7 @@ class Automation(metaclass=SingletonMeta):
         my_crop=None,
         all_text=False,
         additional_stack=0,
+        fast=False,
     ):
         """
         按当前语言状态查找中英文文本，并在语言未知时用命中结果同步语言。
@@ -732,7 +733,7 @@ class Automation(metaclass=SingletonMeta):
         Returns:
             文本命中结果，返回格式同 find_text_element；未命中返回 False。
         """
-        ocr_dict = self._run_ocr_for_text(my_crop=my_crop, additional_stack=additional_stack)
+        ocr_dict = self._run_ocr_for_text(my_crop=my_crop, additional_stack=additional_stack, fast=fast)
         if ocr_dict == {}:
             return False
 
@@ -755,13 +756,15 @@ class Automation(metaclass=SingletonMeta):
 
         return False
 
-    def find_text_element(self, target, my_crop=None, all_text=False, only_text=False, additional_stack=0):
+    def find_text_element(self, target, my_crop=None, all_text=False, only_text=False, additional_stack=0, fast=False):
         """
         寻找文本元素所在的坐标位置。
 
         str/list 目标返回坐标；dict 目标返回 TextMatchResult。
         """
-        ocr_result = self._run_ocr_for_text(my_crop=my_crop, only_text=only_text, additional_stack=additional_stack)
+        ocr_result = self._run_ocr_for_text(
+            my_crop=my_crop, only_text=only_text, additional_stack=additional_stack, fast=fast
+        )
         if only_text:
             return ocr_result
         return self._find_target_in_ocr_dict(target, ocr_result, all_text=all_text)

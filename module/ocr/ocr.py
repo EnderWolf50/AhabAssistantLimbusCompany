@@ -13,21 +13,23 @@ from utils.singletonmeta import SingletonMeta
 class OCR(metaclass=SingletonMeta):
     def __init__(self, logger: logging.Logger):
         self.logger = logger
-        self.engine = RapidOCR(
-            params={
-                "Det.engine_type": EngineType.ONNXRUNTIME,
-                "Det.lang_type": LangDet.CH,
-                "Det.model_type": ModelType.MOBILE,
-                "Det.ocr_version": OCRVersion.PPOCRV4,
-                "Rec.engine_type": EngineType.ONNXRUNTIME,
-                "Rec.lang_type": LangRec.CH,
-                "Rec.model_type": ModelType.MOBILE,
-                "Rec.ocr_version": OCRVersion.PPOCRV4,
-            },
-            config_path=r"assets\config\default_rapidocr.yaml",
-        )
+        params = {
+            "Det.engine_type": EngineType.ONNXRUNTIME,
+            "Det.lang_type": LangDet.CH,
+            "Det.model_type": ModelType.MOBILE,
+            "Det.ocr_version": OCRVersion.PPOCRV4,
+            "Rec.engine_type": EngineType.ONNXRUNTIME,
+            "Rec.lang_type": LangRec.CH,
+            "Rec.model_type": ModelType.MOBILE,
+            "Rec.ocr_version": OCRVersion.PPOCRV4,
+        }
+        config_path = r"assets\config\default_rapidocr.yaml"
+        self.engine = RapidOCR(params=params, config_path=config_path)
+        # 快速模式：小裁剪的短边只放大到 320（默认 736），约快 3 倍。
+        # 只用于已验证过的调用（文字标签）；小号数字（如商店金钱）在 320 下会读错，不要使用
+        self.fast_engine = RapidOCR(params={**params, "Det.limit_side_len": 320}, config_path=config_path)
 
-    def run(self, image: Image.Image | np.ndarray | str) -> RapidOCROutput:
+    def run(self, image: Image.Image | np.ndarray | str, fast: bool = False) -> RapidOCROutput:
         """执行OCR识别，支持Image对象、文件路径和np.ndarray对象"""
         try:
             if isinstance(image, str):
@@ -60,7 +62,7 @@ class OCR(metaclass=SingletonMeta):
             # 自适应均衡化(均值化后更亮)
             clahe = createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             processed_image = clahe.apply(img_cv_gray)
-            results = self.engine(processed_image)
+            results = (self.fast_engine if fast else self.engine)(processed_image)
             self.log_results(results)
             return results
         except Exception as e:

@@ -1245,7 +1245,7 @@ class Shop:
                 for i in range(sinner_nums)
                 if (i + 1) in self.sinner_team
             ]
-            if auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox):
+            if auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox, fast=True):
                 auto.mouse_click(module_position[0], module_position[1] - 100 * my_scale)
 
                 def three_coins():

@@ -382,7 +382,7 @@ class Mirror:
                     continue
             else:
                 turn_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_assets.png"))
-                turn_ocr_result = auto.find_text_element("turn", turn_bbox)
+                turn_ocr_result = auto.find_text_element("turn", turn_bbox, fast=True)
                 if turn_ocr_result is not False:
                     self._fight()
                     continue
@@ -1343,11 +1343,11 @@ class Mirror:
                             button[1] + 350 * my_scale,
                         )
                         if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
+                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox, fast=True)
                             if isinstance(ocr_result, list):
                                 if len(ocr_result) >= 2:
                                     continue
-                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox))
+                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox, fast=True))
                         gift_candidates.append((is_owned, button))
 
                     if gift_candidates:
@@ -1371,7 +1371,7 @@ class Mirror:
                             button[1] + 350 * my_scale,
                         )
                         if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
+                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox, fast=True)
                             if isinstance(ocr_result, list):
                                 if len(ocr_result) >= 2:
                                     time.sleep(1)
@@ -1408,10 +1408,10 @@ class Mirror:
                             button[1] + 350 * my_scale,
                         )
                         if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
+                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox, fast=True)
                             if ocr_result:
                                 continue
-                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox))
+                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox, fast=True))
                         gift_candidate = (is_owned, button)
                         if auto.find_element(
                             f"mirror/road_in_mir/acquire_ego_gift/{self.system}.png",

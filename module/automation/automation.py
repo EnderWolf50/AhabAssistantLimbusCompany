@@ -798,6 +798,17 @@ class Automation(metaclass=SingletonMeta):
             self.clear_img_cache()
 
     @staticmethod
+    def _prefer_known_language(paths: list[str]) -> list[str]:
+        """语言已确定为中文且该图片有 zh_cn 版本时，跳过 en 版本，避免同一模板比对两次。
+
+        英文已确定时 zh_cn 路径会被淘汰（eliminate_zh_cn_paths），这里补上对称的中文情况；
+        zh_cn 缺图时仍保留 en 作为回退。
+        """
+        if path_manager.current_language != "zh_cn" or not any(path_manager.is_path_zh_cn(p) for p in paths):
+            return paths
+        return [p for p in paths if not p.endswith("/en")]
+
+    @staticmethod
     def _path_state_is_known() -> bool:
         return path_manager.current_theme is not None and path_manager.current_language is not None
 
@@ -822,7 +833,7 @@ class Automation(metaclass=SingletonMeta):
                     log.debug(f"当前系统内存总占用率: {current_percent}%，释放图片缓存")
                     self.clear_img_cache()
 
-            existing_paths = ImageUtils.existing_image_paths(target)
+            existing_paths = self._prefer_known_language(ImageUtils.existing_image_paths(target))
             if not existing_paths:
                 log.error(f"未找到图片： {target} ")
                 log.debug(f"无法加载图片: {target}", stacklevel=additional_stack + 3)

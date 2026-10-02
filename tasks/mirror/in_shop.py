@@ -122,9 +122,16 @@ class Shop:
                     auto.mouse_click(1008 * scale, 1164 * scale)  # 取消
                     auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
                     return False
-                auto.click_element("mirror/shop/power_up_confirm_assets.png")
-                # 等确认框消失（升级完成）；升到满级后升级按钮不再出现，不能以它为条件
-                auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 3)
+                # 确认后等确认框关闭（升级完成）。切换等级的动画中点击可能无效，确认框没关就再点一次
+                for _ in range(2):
+                    auto.click_element("mirror/shop/power_up_confirm_assets.png", pre_wait_freezes=100)
+                    if auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1.5):
+                        break
+                else:
+                    log.debug("升级确认未生效，取消并停止升级")
+                    auto.mouse_click(1008 * scale, 1164 * scale)  # 取消
+                    auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
+                    return False
                 if retry() is False:
                     raise self.RestartGame()
                 log.debug(f"饰品升级到 {tier}")
@@ -1086,6 +1093,8 @@ class Shop:
             return False
 
         log.debug("开始执行饰品升级模块")
+        # 已升级饰品按坐标记录；饰品排序会随新获得的饰品改变，坐标只在同一次商店内有效
+        self.enhance_gifts_list = []
 
         my_scale = cfg.set_win_size / 1440
         loop_try_count = 10

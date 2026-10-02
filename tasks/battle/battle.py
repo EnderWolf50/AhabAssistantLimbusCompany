@@ -147,15 +147,15 @@ class Battle:
                 log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
                 if defense_for_solo_state.remaining_turns == 0:
                     log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
-            sleep(2)
-            if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
+            if not self._wait_turn_started():
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
         elif self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
-                self._defense_this_round()
+                if self._defense_this_round():
+                    self._wait_turn_started()
         elif (avoid_skill_3 or prioritize_skill_3) and auto.find_element(
             "battle/gear_left.png", threshold=0.9
         ):
@@ -167,8 +167,7 @@ class Battle:
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
-            sleep(2)
-            if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
+            if not self._wait_turn_started():
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
@@ -671,11 +670,19 @@ class Battle:
             sleep(0.5)
 
             auto.key_press("enter")
-
-            sleep(1)
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _wait_turn_started(timeout: float = 3.0) -> bool:
+        """出招后等到暂停按钮出现（回合开始执行）；超过 timeout 仍未出现返回 False。"""
+        deadline = time.time() + timeout
+        while True:
+            if auto.find_element("battle/pause_assets.png", take_screenshot=True):
+                return True
+            if time.time() > deadline:
+                return False
 
     @staticmethod
     def _defense_this_round(move_back: bool = False) -> bool:
@@ -698,7 +705,7 @@ class Battle:
             for skill in skill_list:
                 auto.mouse_click(skill[0], skill[1])
                 if cfg.simulator:
-                    sleep(cfg.mouse_action_interval)
+                    sleep(0.1)
                 else:
                     sleep(cfg.mouse_action_interval // 1.5)
 
@@ -708,8 +715,6 @@ class Battle:
             auto.mouse_drag_link(skill_list)
 
             auto.mouse_to_blank(move_back=move_back)
-
-            sleep(1)
             return True
         except Exception:
             return False

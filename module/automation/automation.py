@@ -154,16 +154,21 @@ class Automation(metaclass=SingletonMeta):
                         try:
                             return method(*args, **kwargs)
                         finally:
-                            self._last_input_time = time.time()
+                            self._mark_input(method_name)
                     if not gate_open:
                         method = getattr(self.input_handler, method_name)
                         try:
                             return method(*args, **kwargs)
                         finally:
-                            self._last_input_time = time.time()
+                            self._mark_input(method_name)
                     # gate_open 但等待输入锁期间门被关闭:重新等待
 
         return wrapper
+
+    def _mark_input(self, method_name: str) -> None:
+        """记录一次输入的时间；适配器中的占位空操作不算输入。"""
+        if method_name not in self.input_handler.NO_OP_INPUTS:
+            self._last_input_time = time.time()
 
     def monitor_mouse_click(self, x, y, times=1):
         """由系统监控线程点击，不等待该监控线程设置的互斥门。"""

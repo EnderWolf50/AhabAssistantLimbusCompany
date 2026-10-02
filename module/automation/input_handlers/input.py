@@ -686,6 +686,8 @@ class BackgroundInput(WinAbstractInput, metaclass=SingletonMeta):
 class WindowMoveInput(WinAbstractInput, metaclass=SingletonMeta):
     """基于移动窗口位置改变光标相对位置的输入方式"""
 
+    NO_OP_INPUTS = frozenset({"mouse_scroll", "mouse_to_blank"})
+
     def mouse_to_blank(self, coordinate=(1, 1), move_back=False) -> None:
         # FIXME: 移动窗口来防止遮蔽不是一个好选择
         return

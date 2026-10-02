@@ -92,6 +92,7 @@ class BlueStacksAdbUnresponsiveError(RuntimeError):
 
 
 class SimulatorControl(AbstractInput):
+    NO_OP_INPUTS = frozenset({"mouse_scroll", "mouse_to_blank"})
     connection_device = None
     _connection_lock = threading.RLock()
 

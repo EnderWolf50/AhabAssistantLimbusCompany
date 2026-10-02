@@ -230,6 +230,7 @@ class CaptureNemuIpc(CaptureStd):
 
 
 class MumuControl(AbstractInput):
+    NO_OP_INPUTS = frozenset({"mouse_scroll", "mouse_to_blank", "mouse_move"})
     connection_device = None
     _SUPPORTED_DLL_VERSIONS = ("12.0", "15.0")
     _NEMU_CONNECT_RETRY_THRESHOLD = 3

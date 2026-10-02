@@ -147,15 +147,15 @@ class Battle:
                 log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
                 if defense_for_solo_state.remaining_turns == 0:
                     log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
-            if not self._wait_turn_started():
+            if not self._wait_turn_started() and not self._redo_drag_if_interrupted():
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
         elif self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
-                if self._defense_this_round():
-                    self._wait_turn_started()
+                if self._defense_this_round() and not self._wait_turn_started():
+                    self._redo_drag_if_interrupted()
         elif (avoid_skill_3 or prioritize_skill_3) and auto.find_element(
             "battle/gear_left.png", threshold=0.9
         ):
@@ -683,7 +683,18 @@ class Battle:
                 return False
 
     @staticmethod
-    def _defense_this_round(move_back: bool = False) -> bool:
+    def _redo_drag_if_interrupted() -> bool:
+        """出招后回合没有开始且仍在选技能画面（输入可能被打断，例如切到模拟器窗口），只重做一次拖动。
+
+        不重点技能格：再点一次会把已切成防御的技能切回原技能。返回回合是否已开始。
+        """
+        if not auto.find_element("battle/gear_left.png", threshold=0.9):
+            return False
+        log.debug("出招后回合未开始，重做一次拖动")
+        return Battle._defense_this_round(click_slots=False) and Battle._wait_turn_started()
+
+    @staticmethod
+    def _defense_this_round(move_back: bool = False, click_slots: bool = True) -> bool:
         try:
             scale = cfg.set_win_size / 1440
 
@@ -700,7 +711,7 @@ class Battle:
             skill_list = []
             Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
 
-            for skill in skill_list:
+            for skill in skill_list if click_slots else []:
                 auto.mouse_click(skill[0], skill[1])
                 if cfg.simulator:
                     sleep(0.1)

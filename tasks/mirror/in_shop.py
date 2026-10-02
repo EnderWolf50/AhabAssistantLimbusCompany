@@ -1,5 +1,6 @@
 from time import sleep
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -82,6 +83,41 @@ class Shop:
         box = tuple(v * scale for v in (1533, 1151, 1684, 1183))
         button = np.asarray(auto.screenshot.convert("L").crop(box))
         return float(np.percentile(button, 95)) > 120
+
+    @staticmethod
+    def _is_max_tier(gift, color) -> bool:
+        """升级列表中该饰品是否已是 ++（右上角两个橘色十字）。
+
+        gift 为体系图标（格子右下角）的位置，格子中心约在其左上 (58, 59)。实测：++ 为 2 个橘色块、
+        宽约 63 px；+ 为 1 块、宽约 36 px；被选中格子的橘框为 1 块、宽约 44 px。
+        """
+        if color is None:
+            return False
+        scale = cfg.set_win_size / 1440
+        cx, cy = gift[0] - 58 * scale, gift[1] - 59 * scale
+        x0, x1 = int(cx - 5 * scale), int(cx + 75 * scale)
+        y0, y1 = int(cy - 75 * scale), int(cy - 25 * scale)
+        region = color[max(y0, 0) : y1, max(x0, 0) : x1].astype(np.int16)
+        r, g, b = region[..., 0], region[..., 1], region[..., 2]
+        mask = ((r > 230) & (g > 120) & (g < 230) & (b < 120)).astype(np.uint8)
+        _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        blobs = [s for s in stats[1:] if s[4] > 40 * scale * scale]
+        if len(blobs) < 2:
+            return False
+        width = max(s[0] + s[2] for s in blobs) - min(s[0] for s in blobs)
+        return width > 55 * scale
+
+    @staticmethod
+    def _scroll_enhance_list() -> bool:
+        """升级列表往下卷动约两行；列表内容有变化返回 True，已到底返回 False。"""
+        scale = cfg.set_win_size / 1440
+        box = tuple(v * scale for v in (1290, 440, 2180, 960))
+        before = np.asarray(auto.screenshot.convert("L").crop(box), dtype=np.int16)
+        # 从两列格子之间的缝隙往上拖，避免点到饰品；按住片刻再放开，列表不会继续滑动
+        auto.mouse_drag(1641 * scale, 950 * scale, drag_time=0.5, dy=-368 * scale)
+        auto.wait_freezes(target=box, timeout=2)
+        after = np.asarray(auto.screenshot.convert("L").crop(box), dtype=np.int16)
+        return float(np.abs(after - before).mean()) > 3
 
     @staticmethod
     def _goods_box():
@@ -1181,6 +1217,7 @@ class Shop:
                         self.first_gift_enhance = True
                         continue
 
+            stopped = False
             if gifts := auto.find_element(
                 f"mirror/shop/enhance_gifts/{self.system}.png",
                 find_type="image_with_multiple_targets",
@@ -1191,23 +1228,27 @@ class Shop:
                 gifts = _filter_enhance_gift_scan_points(gifts, screen_size)
                 if len(gifts) != raw_count:
                     log.debug(f"升级扫描区域过滤：{raw_count} -> {len(gifts)}")
+                color = auto.take_color_snapshot()
                 for gift in gifts:
-                    if check_enhanced(gift) is False:
-                        auto.mouse_click(gift[0], gift[1])
-                        if self.ego_gift_to_power_up() is False:
-                            next_gift = False
-                            break
-                        else:
-                            self.enhance_gifts_list.append(gift)
-                    else:
+                    if check_enhanced(gift):
                         continue
+                    if self._is_max_tier(gift, color):
+                        log.debug(f"饰品已是 ++，跳过：{gift}")
+                        continue
+                    auto.mouse_click(gift[0], gift[1])
+                    if self.ego_gift_to_power_up() is False:
+                        stopped = True
+                        break
+                    self.enhance_gifts_list.append(gift)
                     next_gift = False
+            if stopped:
+                break
 
-            # if list_block is False and auto.find_element("mirror/shop/gifts_list_block.png"):
-            #     block_position = auto.find_element("mirror/shop/gifts_list_block.png")
-            #     auto.mouse_drag(block_position[0], block_position[1], drag_time=1, dy=500)
-            #     list_block = True
-            #     continue
+            # 当前可见的饰品处理完：列表往下卷动继续；卷不动（已到底）才结束
+            if self._scroll_enhance_list():
+                self.enhance_gifts_list = []  # 卷动后坐标改变
+                stale_count = 0
+                continue
 
             if next_gift is False:
                 break

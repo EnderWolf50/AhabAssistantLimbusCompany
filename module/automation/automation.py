@@ -523,6 +523,12 @@ class Automation(metaclass=SingletonMeta):
             if now > deadline:
                 return False
 
+    def take_color_snapshot(self) -> np.ndarray | None:
+        """额外截一张彩色图（RGB），不替换 self.screenshot，供需要颜色的判断使用。"""
+        with self._screenshot_lock:
+            img = ScreenShot.take_screenshot(False)
+        return np.asarray(img.convert("RGB")) if img is not None else None
+
     def wait_until(self, condition, timeout: float):
         """连续截图直到 condition() 为真或超过 timeout 秒，返回 condition() 最后一次的结果。
 

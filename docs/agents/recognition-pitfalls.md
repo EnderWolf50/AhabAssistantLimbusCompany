@@ -9,6 +9,7 @@ The frame right after an input usually still shows the screen **before** the inp
 - Replace a fixed `sleep` after an input with `auto.wait_until(condition, timeout)`, and write the condition about a state that does **not** hold before the input: a dialog that appears, a button that disappears, a region that differs from a snapshot taken before the click. "Button X is visible" is only safe when X was absent before the click.
 - Keep the old sleep length as the `timeout`, so the worst case is unchanged.
 - `find_element` without `take_screenshot=True` reads the last screenshot, which may predate the input. Bugs found this way: `mouse_click_rate` decided on the pre-P frame (#13), the keyword-refresh "did not take effect" retry fired 0.24 s after a click that worked.
+- `retry()` runs its popup checks at most once per second (`RETRY_CHECK_INTERVAL`); in between it only refreshes the screenshot if it is stale. Some loops (`back_init_menu`) take no screenshot of their own and see new frames only through `retry()`; a loop that counts attempts must get a fresh frame every iteration, or it burns its count on one frame (that caused a restart loop after a game restart, `9be0abb`).
 - Without `screenshot_stable_detect`, `take_screenshot` only enforces `screenshot_interval` since the **last screenshot**, not since the last input; with it, `post_input_min_wait` applies. Write waits that are correct either way.
 
 ## Stability waits

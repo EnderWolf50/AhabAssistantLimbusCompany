@@ -20,6 +20,8 @@ from utils.image_utils import ImageUtils
 from utils.utils import find_skill3
 
 DEFENSE_FOR_SOLO_TURN_LIMIT = 5
+# 全员防御拖动后等待回合开始的上限（秒）
+DEFENSE_TURN_START_TIMEOUT = 5.0
 
 
 @dataclass
@@ -112,8 +114,9 @@ class Battle:
                 msg = f"小指良单通连续防御（剩余{defense_for_solo_state.remaining_turns}回合），开始战斗"
             else:
                 msg = "第一回合全员防御，开始战斗"
-            # 回合真正开始才算防御成功；出错或未被游戏接受时改用 P+Enter，且不扣除连续防御回合
-            if not (self._defense_this_round() and self._wait_turn_started()):
+            # 回合真正开始才算防御成功；出错或未被游戏接受时改用 P+Enter，且不扣除连续防御回合。
+            # 防御拖动后回合开始偶尔超过 3 秒，等 5 秒，避免回合已开始时又按 P+Enter
+            if not (self._defense_this_round() and self._wait_turn_started(DEFENSE_TURN_START_TIMEOUT)):
                 if use_limited_defense:
                     msg = "小指良单通连续防御失败，本回合改为P+Enter（不扣除防御回合）"
                 else:
@@ -132,7 +135,7 @@ class Battle:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
                 if self._defense_this_round():
-                    self._wait_turn_started()
+                    self._wait_turn_started(DEFENSE_TURN_START_TIMEOUT)
         elif (avoid_skill_3 or prioritize_skill_3) and auto.find_element(
             "battle/gear_left.png", threshold=0.9
         ):

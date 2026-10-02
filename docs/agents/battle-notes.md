@@ -4,7 +4,7 @@ Observed game behaviour and AALC pitfalls in `tasks/battle/battle.py`. Read befo
 
 ## Starting a turn
 
-- Every way of acting (P+Enter, all-defense drag, chain link, win-rate-card click) is followed by `_wait_turn_started()`: poll for `battle/pause_assets.png` (it only shows while a turn plays) for up to 3 s. Without it the next loop iteration sees the pre-turn frame and acts again (29 of 59 P+Enter turns were doubled, #13).
+- Every way of acting (P+Enter, all-defense drag, chain link, win-rate-card click) is followed by `_wait_turn_started()`: poll for `battle/pause_assets.png` (it only shows while a turn plays) for up to 3 s, 5 s after an all-defense drag (`DEFENSE_TURN_START_TIMEOUT`; one turn started after >3 s with the window untouched). Without it the next loop iteration sees the pre-turn frame and acts again (29 of 59 P+Enter turns were doubled, #13).
 - `mouse_click_rate` (fallback: click the win-rate card + right gear when P+Enter does not start a turn) is set only when `_wait_turn_started()` fails, never from a stale frame.
 - Only **look** for the TURN icon (`find_element("battle/turn_assets.png")`). Clicking it blocked the defense drag and P+Enter for ~6 s; the next click unblocked it (#14 follow-up, `f709a1f`).
 

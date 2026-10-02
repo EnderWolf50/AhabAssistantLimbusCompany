@@ -85,14 +85,15 @@ class Shop:
         return float(np.percentile(button, 95)) > 120
 
     @staticmethod
-    def _is_max_tier(gift, color) -> bool:
-        """升级列表中该饰品是否已是 ++（右上角两个橘色十字）。
+    def _gift_tier(gift, color) -> int:
+        """升级列表中该饰品已强化的等级：0、1（+）或 2（++），看格子右上角的橘色十字。
 
-        gift 为体系图标（格子右下角）的位置，格子中心约在其左上 (58, 59)。实测：++ 为 2 个橘色块、
-        宽约 63 px；+ 为 1 块、宽约 36 px；被选中格子的橘框为 1 块、宽约 44 px。
+        gift 为体系图标（格子右下角）的位置，格子中心约在其左上 (58, 59)。实测（2560x1440）：
+        + 为 1 块约 36x35、面积约 560；++ 为 2 块各约 28x29、面积约 350；
+        被选中格子的橘框是高约 7 的细线，不计入。
         """
         if color is None:
-            return False
+            return 0
         scale = cfg.set_win_size / 1440
         cx, cy = gift[0] - 58 * scale, gift[1] - 59 * scale
         x0, x1 = int(cx - 5 * scale), int(cx + 75 * scale)
@@ -101,11 +102,12 @@ class Shop:
         r, g, b = region[..., 0], region[..., 1], region[..., 2]
         mask = ((r > 230) & (g > 120) & (g < 230) & (b < 120)).astype(np.uint8)
         _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
-        blobs = [s for s in stats[1:] if s[4] > 40 * scale * scale]
-        if len(blobs) < 2:
-            return False
-        width = max(s[0] + s[2] for s in blobs) - min(s[0] for s in blobs)
-        return width > 55 * scale
+        crosses = [s for s in stats[1:] if s[3] >= 20 * scale and s[4] >= 200 * scale * scale]
+        if len(crosses) >= 2:
+            return 2
+        if len(crosses) == 1 and crosses[0][4] >= 450 * scale * scale:
+            return 1
+        return 0
 
     @staticmethod
     def _scroll_enhance_list() -> bool:
@@ -128,7 +130,11 @@ class Shop:
     def _goods_snapshot(self):
         return np.asarray(auto.screenshot.convert("L").crop(self._goods_box()), dtype=np.int16)
 
-    def ego_gift_to_power_up(self):
+    def ego_gift_to_power_up(self, tier=None):
+        """升级当前选中的饰品。tier 为它已强化的等级（未知为 None）。
+
+        返回 False 表示应停止升级其他饰品（钱连 + 都不够，或确认框异常）。
+        """
         loop_count = 30
         auto.model = "clam"
         while True:
@@ -154,11 +160,12 @@ class Shop:
                 def preview():
                     return np.asarray(auto.screenshot.convert("L").crop(preview_box), dtype=np.int16)
 
-                # 先选 ++ 一次升到满级；钱不够（确认按钮变灰）改选 +；+ 也不够就停止升级其他饰品
+                # 先选 ++ 一次升到满级；钱不够（确认按钮变灰）改选 +；+ 也不够就停止升级其他饰品。
+                # 已是 + 的饰品只能升到 ++：钱不够只跳过它，其他未强化的饰品升到 + 可能还够
                 # 确认框淡入期间预览也在变，先等它静止再作为点击前的基准
                 auto.wait_freezes(target=preview_box)
-                for tier in ("++", "+"):
-                    x = 2060 if tier == "++" else 1814
+                for tier_choice in ("++",) if tier == 1 else ("++", "+"):
+                    x = 2060 if tier_choice == "++" else 1814
                     before = preview()
                     auto.mouse_click(x * scale, 1022 * scale)
                     # 等金额预览按所选等级刷新；该等级已选中或不可选时预览不变，最多等 0.5 秒
@@ -166,9 +173,12 @@ class Shop:
                     if self._power_up_confirm_enabled():
                         break
                 else:
-                    log.debug("剩余金钱不足以升级，停止升级其他饰品")
                     auto.mouse_click(1008 * scale, 1164 * scale)  # 取消
                     auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
+                    if tier == 1:
+                        log.debug("剩余金钱不足以把此饰品升到 ++，跳过")
+                        return True
+                    log.debug("剩余金钱不足以升级，停止升级其他饰品")
                     return False
                 # 确认后等确认框关闭（升级完成）。切换等级的动画中点击可能无效，确认框没关就再点一次
                 for _ in range(2):
@@ -182,7 +192,7 @@ class Shop:
                     return False
                 if retry() is False:
                     raise self.RestartGame()
-                log.debug(f"饰品升级到 {tier}")
+                log.debug(f"饰品升级到 {tier_choice}")
                 return True
             if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                 return False
@@ -1232,11 +1242,12 @@ class Shop:
                 for gift in gifts:
                     if check_enhanced(gift):
                         continue
-                    if self._is_max_tier(gift, color):
+                    tier = self._gift_tier(gift, color)
+                    if tier == 2:
                         log.debug(f"饰品已是 ++，跳过：{gift}")
                         continue
                     auto.mouse_click(gift[0], gift[1])
-                    if self.ego_gift_to_power_up() is False:
+                    if self.ego_gift_to_power_up(tier) is False:
                         stopped = True
                         break
                     self.enhance_gifts_list.append(gift)

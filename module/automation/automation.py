@@ -362,6 +362,47 @@ class Automation(metaclass=SingletonMeta):
 
         return True
 
+    # 画面静止检测：缩略灰度图的平均像素差低于该值视为静止（0-255）
+    STABLE_DIFF = 2.0
+    # 发生输入后至少等待这么久才接受“静止”，避免拿到输入前的旧画面而重复点击
+    POST_INPUT_MIN_WAIT = 0.3
+
+    @staticmethod
+    def _thumbnail(img: Image) -> np.ndarray:
+        return np.asarray(img.convert("L").resize((128, 72)), dtype=np.int16)
+
+    def _take_stable_screenshot(self, gray: bool, max_interval: float) -> Image | None:
+        """以 screenshot_min_interval 连续截图，画面静止时立即返回；画面持续变化时最多等到 max_interval。
+
+        参考 MaaFramework 的 pre_wait_freezes：用“等到画面静止”代替“每次都等固定时间”。
+        max_interval 与原 screenshot_interval 相同，因此不会比固定间隔更慢。
+        """
+        min_interval = cfg.screenshot_min_interval if cfg.screenshot_min_interval else 0.1
+        deadline = self.last_screenshot_time + max_interval
+        prev = getattr(self, "_stable_prev_thumb", None)
+        prev_time = getattr(self, "_stable_prev_time", 0.0)
+        while True:
+            now = time.time()
+            wait = max(min_interval - (now - prev_time), self.POST_INPUT_MIN_WAIT - (now - self._last_input_time), 0)
+            if wait > 0:
+                time.sleep(wait)
+            with self._screenshot_lock:
+                result = ScreenShot.take_screenshot(gray)
+                self._remember_screenshot(result)
+            if result is None:
+                return None
+            thumb = self._thumbnail(result)
+            captured_at = time.time()
+            stable = (
+                prev is not None
+                and prev_time > self._last_input_time
+                and float(np.abs(thumb - prev).mean()) < self.STABLE_DIFF
+            )
+            prev, prev_time = thumb, captured_at
+            self._stable_prev_thumb, self._stable_prev_time = thumb, captured_at
+            if stable or captured_at >= deadline:
+                return result
+
     def take_screenshot(self, gray: bool = True) -> Image | None:
         """
         截取当前屏幕并返回图像对象。
@@ -374,16 +415,19 @@ class Automation(metaclass=SingletonMeta):
         screenshot_interval_time = cfg.screenshot_interval if cfg.screenshot_interval else 0.85
         while True:
             try:
-                if time.time() - self.last_screenshot_time < screenshot_interval_time:
-                    wait_time = max(
-                        screenshot_interval_time - (time.time() - self.last_screenshot_time),
-                        0,
-                    )
-                    time.sleep(wait_time)
+                if cfg.screenshot_stable_detect:
+                    result = self._take_stable_screenshot(gray, screenshot_interval_time)
+                else:
+                    if time.time() - self.last_screenshot_time < screenshot_interval_time:
+                        wait_time = max(
+                            screenshot_interval_time - (time.time() - self.last_screenshot_time),
+                            0,
+                        )
+                        time.sleep(wait_time)
 
-                with self._screenshot_lock:
-                    result = ScreenShot.take_screenshot(gray)
-                    self._remember_screenshot(result)
+                    with self._screenshot_lock:
+                        result = ScreenShot.take_screenshot(gray)
+                        self._remember_screenshot(result)
                 if result:
                     self.screenshot = result
                     self.last_screenshot_time = time.time()

@@ -330,6 +330,12 @@ class ConfigModel(BaseModel):
     screenshot_interval: float
     """截图间隔时间"""
 
+    screenshot_stable_detect: bool
+    """画面静止检测：画面静止时立即返回截图，截图间隔变为上限"""
+
+    screenshot_min_interval: float
+    """画面静止检测时的最短截图间隔"""
+
     mouse_action_interval: float
     """鼠标操作间隔时间"""
 

@@ -90,8 +90,14 @@ class Shop:
             auto.mouse_to_blank()
             if auto.click_element("mirror/shop/power_up_assets.png"):
                 auto.mouse_to_blank()
-                # 没有弹出升级确认框（带“强化等级 + / ++”选项）：饰品已满级
-                if not auto.wait_until(lambda: auto.find_element("mirror/shop/enhance_tier_assets.png"), 1):
+                # 能升级会弹出确认框（带“强化等级 + / ++”选项）；不能升级（满级或连 + 的钱都不够）
+                # 只在右上角弹出“Cannot Enhance”提示。两者谁先出现就按谁处理，不必等满 1 秒
+                dialog = auto.wait_until(
+                    lambda: auto.find_element("mirror/shop/enhance_tier_assets.png")
+                    or (auto.find_element("mirror/shop/cannot_enhance_assets.png") and "cannot"),
+                    1,
+                )
+                if not dialog or dialog == "cannot":
                     return True
                 scale = cfg.set_win_size / 1440
                 # 右上角的金额预览（如 94 ▸ 44），选不同等级时会变化

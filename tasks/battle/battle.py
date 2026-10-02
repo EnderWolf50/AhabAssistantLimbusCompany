@@ -176,18 +176,16 @@ class Battle:
             sleep(0.5)
             auto.key_press("enter")
             msg = "使用P+Enter开始战斗"
-            if self.mouse_click_rate:
+            # 等回合真正开始再返回，否则下一轮可能拿到出招前的画面而再出招一次
+            if self.mouse_click_rate or not self._wait_turn_started():
+                # P+Enter 未能开始回合：改用点击胜率卡+右齿轮，此后一直使用该方式
+                self.mouse_click_rate = True
                 my_scale = cfg.set_win_size / 1440
-                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
+                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75, take_screenshot=True):
                     pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
                     auto.mouse_click(pos[0], pos[1])
                     auto.click_element("battle/gear_right.png")
-            else:
-                sleep(1)
-                if not auto.find_element("battle/pause_assets.png", threshold=0.75):
-                    self.mouse_click_rate = True
-                else:
-                    self.mouse_click_rate = False
+                    self._wait_turn_started()
         log.debug(msg)
         return limited_defense_succeeded
 

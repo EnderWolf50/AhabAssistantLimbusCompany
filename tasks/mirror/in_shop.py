@@ -80,10 +80,15 @@ class Shop:
             auto.mouse_to_blank()
             if auto.click_element("mirror/shop/power_up_assets.png"):
                 auto.mouse_to_blank()
-                sleep(0.5)
-                if auto.click_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True) is False:
+                if not auto.wait_until(lambda: auto.find_element("mirror/shop/power_up_confirm_assets.png"), 1):
                     return True
-                sleep(3)
+                auto.click_element("mirror/shop/power_up_confirm_assets.png")
+                # 等确认框消失、升级按钮重新出现（升级完成）
+                auto.wait_until(
+                    lambda: not auto.find_element("mirror/shop/power_up_confirm_assets.png")
+                    and auto.find_element("mirror/shop/power_up_assets.png"),
+                    3,
+                )
                 if retry() is False:
                     raise self.RestartGame()
             if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
@@ -230,28 +235,26 @@ class Shop:
                 while system_gift:
                     gift = system_gift.pop(0)
                     auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
-                    sleep(1)
-                    while auto.take_screenshot() is None:
-                        continue
+                    auto.wait_until(lambda: auto.find_element("mirror/shop/purchase_assets.png"), 1)
                     if self.system == "bleed" and not cfg.not_skip_whitegossypium:
                         if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
                             auto.mouse_click_blank(times=2)
                         sleep(1)
                     if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                        sleep(1)
-                        auto.click_element(
-                            "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                            take_screenshot=True,
+                        auto.wait_until(
+                            lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 1
                         )
+                        auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
                         complete_count += 1
                         system_gift = re_sort_points(system_gift)
                         auto.mouse_click_blank(times=3)
                         continue
                     else:
-                        if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png",take_screenshot=True):
-                            sleep(0.5)
+                        auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
                         auto.mouse_click_blank(times=3)
-                        sleep(1)
+                        auto.wait_until(
+                            lambda: not auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 1.5
+                        )
 
             if self.second_system and self.second_system_action[1]:
                 if self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True):
@@ -297,11 +300,8 @@ class Shop:
             elif keyword_refresh_count < self.max_keyword_refresh and my_remaining_money >= 300:
                 auto.mouse_click_blank(times=3)
                 if auto.click_element("mirror/shop/refresh_keyword_assets.png"):
-                    sleep(1)
-                    auto.click_element(
-                        f"mirror/shop/keyword/keyword_{self.system}.png",
-                        take_screenshot=True,
-                    )
+                    auto.wait_until(lambda: auto.find_element(f"mirror/shop/keyword/keyword_{self.system}.png"), 1)
+                    auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png")
                     sleep(0.5)
                     auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
                     for _ in range(3):
@@ -820,7 +820,7 @@ class Shop:
             # 确认按钮的 ✓ 会随按钮文字长度偏移（英文 Confirm 比中文 确认 长，约左移 34px），
             # clam 模式搜索范围不够，英文/模拟器下只有 0.79；normal 模式为 0.997
             if auto.click_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"):
-                sleep(1)
+                auto.wait_until(lambda: not auto.find_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"), 1)
                 continue
 
             if system_sell:
@@ -836,7 +836,9 @@ class Shop:
                             "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                             model="normal",
                         )
-                        sleep(1)
+                        auto.wait_until(
+                            lambda: auto.find_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"), 1
+                        )
                         if retry() is False:
                             raise self.RestartGame()
                         gift_sell = True
@@ -1054,7 +1056,7 @@ class Shop:
                 auto.mouse_click(button[0], button[1] + 200 * my_scale)
                 break
             if auto.click_element("mirror/shop/enhance_gifts_assets.png"):
-                sleep(1)
+                auto.wait_until(lambda: auto.find_element("mirror/shop/sort_button_assets.png"), 1)
                 continue
             auto.mouse_click_blank()
             loop_try_count -= 1
@@ -1222,12 +1224,15 @@ class Shop:
             ]
             if auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox):
                 auto.mouse_click(module_position[0], module_position[1] - 100 * my_scale)
-                sleep(0.5)
-                coins = auto.find_element(
-                    "mirror/shop/skill_replacement_coins.png",
-                    find_type="image_with_multiple_targets",
-                    take_screenshot=True,
-                )
+
+                def three_coins():
+                    found = auto.find_element(
+                        "mirror/shop/skill_replacement_coins.png",
+                        find_type="image_with_multiple_targets",
+                    )
+                    return found if len(found) == 3 else []
+
+                coins = auto.wait_until(three_coins, 1)
                 if len(coins) != 3:
                     return
                 coins = sorted(coins, key=lambda x: x[0])
@@ -1354,8 +1359,8 @@ class Shop:
                     continue
 
                 auto.mouse_click_blank(times=3)
-                auto.click_element("mirror/shop/return_assets.png")
-                sleep(1)
+                if auto.click_element("mirror/shop/return_assets.png"):
+                    auto.wait_until(lambda: not auto.find_element("mirror/shop/return_assets.png"), 1)
 
                 if self.skill_replacement and skill is False:
                     self.replacement_skill()
@@ -1427,7 +1432,7 @@ class Shop:
                 if auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
                     continue
                 if auto.click_element("mirror/shop/leave_assets.png"):
-                    sleep(1)
+                    auto.wait_until(lambda: auto.find_element("mirror/shop/leave_shop_confirm_assets.png"), 1)
                     continue
                 if auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
                     continue

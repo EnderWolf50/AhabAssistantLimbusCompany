@@ -460,6 +460,20 @@ class Automation(metaclass=SingletonMeta):
                 init_game()
                 start_time = time.time()
 
+    def wait_until(self, condition, timeout: float):
+        """连续截图直到 condition() 为真或超过 timeout 秒，返回 condition() 最后一次的结果。
+
+        用来代替“输入后固定 sleep”。condition 应检查输入前不成立的状态（例如新出现的弹窗、
+        已消失的按钮），否则可能在输入前的旧画面上立即成立。
+        """
+        deadline = time.time() + timeout
+        while True:
+            while self.take_screenshot() is None:
+                continue
+            result = condition()
+            if result or time.time() > deadline:
+                return result
+
     def find_element(
         self,
         target,

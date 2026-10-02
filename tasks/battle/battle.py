@@ -133,24 +133,22 @@ class Battle:
                 msg = f"小指良单通连续防御（剩余{defense_for_solo_state.remaining_turns}回合），开始战斗"
             else:
                 msg = "第一回合全员防御，开始战斗"
-            if self._defense_this_round() is False:
+            # 回合真正开始才算防御成功；出错或未被游戏接受时改用 P+Enter，且不扣除连续防御回合
+            if not (self._defense_this_round() and self._wait_turn_started()):
                 if use_limited_defense:
-                    msg = "小指良单通连续防御失败，本回合改为P+Enter"
+                    msg = "小指良单通连续防御失败，本回合改为P+Enter（不扣除防御回合）"
                 else:
                     msg = "第一回合全员防御失败，本场战斗改为P+Enter"
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
+                self._wait_turn_started()
             elif use_limited_defense:
                 defense_for_solo_state.consume_turn()
                 limited_defense_succeeded = True
                 log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
                 if defense_for_solo_state.remaining_turns == 0:
                     log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
-            if not self._wait_turn_started():
-                auto.key_press("p")
-                sleep(0.5)
-                auto.key_press("enter")
         elif self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"

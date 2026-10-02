@@ -80,17 +80,33 @@ class Shop:
             auto.mouse_to_blank()
             if auto.click_element("mirror/shop/power_up_assets.png"):
                 auto.mouse_to_blank()
-                if not auto.wait_until(lambda: auto.find_element("mirror/shop/power_up_confirm_assets.png"), 1):
+                # 没有弹出升级确认框（带“强化等级 + / ++”选项）：饰品已满级
+                if not auto.wait_until(lambda: auto.find_element("mirror/shop/enhance_tier_assets.png"), 1):
                     return True
+                scale = cfg.set_win_size / 1440
+                # 先选 ++ 一次升到满级；钱不够（确认按钮变灰）改选 +；+ 也不够就停止升级其他饰品
+                for tier in ("++", "+"):
+                    x = 2060 if tier == "++" else 1814
+                    auto.mouse_click(x * scale, 1022 * scale)
+                    sleep(0.3)  # 等确认按钮按所选等级的费用刷新
+                    if auto.find_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True):
+                        break
+                else:
+                    log.debug("剩余金钱不足以升级，停止升级其他饰品")
+                    auto.mouse_click(1008 * scale, 1164 * scale)  # 取消
+                    auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
+                    return False
                 auto.click_element("mirror/shop/power_up_confirm_assets.png")
                 # 等确认框消失、升级按钮重新出现（升级完成）
                 auto.wait_until(
-                    lambda: not auto.find_element("mirror/shop/power_up_confirm_assets.png")
+                    lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png")
                     and auto.find_element("mirror/shop/power_up_assets.png"),
                     3,
                 )
                 if retry() is False:
                     raise self.RestartGame()
+                log.debug(f"饰品升级到 {tier}")
+                return True
             if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                 return False
             loop_count -= 1

@@ -10,7 +10,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Game concepts and log vocabulary (script run, mirror flow, keywords, shop, battle terms, code map): `CONTEXT.md` at the repo root; decisions in `docs/adr/`. See `docs/agents/domain.md`.
 
 ## Automation notes
 

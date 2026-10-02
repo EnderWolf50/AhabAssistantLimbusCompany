@@ -841,6 +841,26 @@ class Automation(metaclass=SingletonMeta):
         if path_changed:
             self.clear_img_cache()
 
+    def _scaled_screenshot(self, scale: float) -> np.ndarray:
+        """按 recognition_scale 缩小当前截图；同一张截图只缩放一次。"""
+        cached = getattr(self, "_scaled_shot_cache", None)
+        if cached is not None and cached[0] is self.screenshot and cached[1] == scale:
+            return cached[2]
+        small = cv2.resize(np.array(self.screenshot), None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        self._scaled_shot_cache = (self.screenshot, scale, small)
+        return small
+
+    def _scaled_template(self, target, path, template, bbox, scale):
+        """按 recognition_scale 缩小模板与 bbox，结果按 (模板, 路径, 比例) 缓存。"""
+        key = ("scaled", target, path, scale)
+        if key in self.img_cache:
+            cached = self.img_cache[key]
+            return cached["template"], cached["bbox"]
+        small = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        small_bbox = tuple(int(v * scale) for v in bbox) if bbox else None
+        self.img_cache[key] = {"template": small, "bbox": small_bbox}
+        return small, small_bbox
+
     @staticmethod
     def _prefer_known_language(paths: list[str]) -> list[str]:
         """语言已确定为中文且该图片有 zh_cn 版本时，跳过 en 版本，避免同一模板比对两次。
@@ -883,16 +903,23 @@ class Automation(metaclass=SingletonMeta):
                 log.debug(f"无法加载图片: {target}", stacklevel=additional_stack + 3)
                 return None
 
-            screenshot = np.array(self.screenshot)
+            scale = cfg.recognition_scale if cfg.recognition_scale and 0 < cfg.recognition_scale < 1 else 1.0
+            screenshot = self._scaled_screenshot(scale) if scale < 1 and not my_crop else np.array(self.screenshot)
             if my_crop:
                 screenshot = ImageUtils.crop(screenshot, my_crop)
+                if scale < 1:
+                    screenshot = cv2.resize(screenshot, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
             results = []
             for loaded_path in existing_paths:
                 template, bbox = self._load_template_for_path(target, loaded_path, cacheable)
                 if template is None:
                     continue
-                center, matchVal = ImageUtils.match_template(screenshot, template, bbox, model)
+                if scale < 1:
+                    template, bbox = self._scaled_template(target, loaded_path, template, bbox, scale)
+                center, matchVal = ImageUtils.match_template(screenshot, template, bbox, model, scale=scale)
+                if scale < 1:
+                    center = (int(center[0] / scale), int(center[1] / scale))
                 matched = self._is_valid_match(matchVal, threshold)
                 if 0.70 < matchVal < 0.90 and int(matchVal * 1000 + 1e-9) % 10 >= 5:
                     match_fmt = ".3f"

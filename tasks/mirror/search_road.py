@@ -22,6 +22,8 @@ class MirrorMap:
         self.floor_map = []
         self.map = {}
         self.hard_mode = hard_mode
+        # bus 可能已停在未进入的节点上（初次启动、进入失败后）；新楼层开头 bus 在起点，不需要检查
+        self.check_bus_on_node = True
 
     def get_next_step(self):
         re_identify = False
@@ -35,7 +37,10 @@ class MirrorMap:
             re_identify = True
 
         if re_identify is True:
-            self.floor_map, self.floor_nodes = search_road_from_road_map(hard_mode=self.hard_mode)
+            self.floor_map, self.floor_nodes = search_road_from_road_map(
+                hard_mode=self.hard_mode, check_bus_on_node=self.check_bus_on_node
+            )
+            self.check_bus_on_node = False
             if self.floor_map is True and self.floor_nodes is True:
                 return True
             if self.floor_map is False:
@@ -60,7 +65,6 @@ class MirrorMap:
                 auto.key_press("down")
             elif next_step == "M":
                 auto.key_press("right")
-            sleep(1)
             return _keyboard_enter_succeeded()
 
         if next_position := self._get_next_position(next_step):
@@ -102,6 +106,12 @@ class MirrorMap:
         log.debug(f"镜牢地图楼层缓存更新: {self.floor} -> {floor}")
         self.floor = floor
         self.floor_map = []
+        self.check_bus_on_node = False
+
+    def enter_failed(self):
+        """进入节点失败：已弹出的路线与实际位置可能不同步，下次重新规划。"""
+        self.floor_map = []
+        self.check_bus_on_node = True
 
 
 def get_node_weight(x, y):
@@ -131,11 +141,10 @@ def get_node_weight(x, y):
 def _keyboard_enter_succeeded() -> bool:
     """检测键盘寻路按键后是否成功进入下一节点。
 
-    成功条件：点击到"进入"按钮。
+    成功条件：点击到"进入"按钮。按键前"进入"按钮不在画面上，出现即可点击，最多等 1 秒。
     """
-    if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
-        return True
-    return False
+    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/enter_assets.png"), 1)
+    return bool(auto.click_element("mirror/road_in_mir/enter_assets.png"))
 
 
 # 简单键盘寻路：始终按↑选择第一个节点，完全避免鼠标拖动
@@ -154,7 +163,6 @@ def search_road_simple_keyboard():
     for attempt in range(2):
         log.debug(f"简单键盘寻路: 第 {attempt + 1} 次尝试按↑")
         auto.key_press("up")
-        sleep(1)
 
         if _keyboard_enter_succeeded():
             return True
@@ -273,12 +281,12 @@ def search_road_farthest_distance():
     return False
 
 
-def search_road_from_road_map(hard_mode=False):
+def search_road_from_road_map(hard_mode=False, check_bus_on_node=True):
     start_time = time.time()
     scale = cfg.set_win_size / 1440
     bus = None
 
-    if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
+    if check_bus_on_node and auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
         sleep(0.75)
         if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
             return True, True
@@ -301,7 +309,8 @@ def search_road_from_road_map(hard_mode=False):
             dx = 80 * scale - bus_position[0]
             dy = 690 * scale - bus_position[1]
             auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
-            sleep(0.5)
+            if not cfg.screenshot_stable_detect:  # 静止检测会等地图惯性停下
+                sleep(0.5)
             auto.mouse_to_blank()
 
             bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)
@@ -359,7 +368,8 @@ def search_road_from_road_map(hard_mode=False):
                 dx = 550 * scale - bus_position[0]
                 dy = set_y_position - bus_position[1]
                 auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
-                sleep(0.5)
+                if not cfg.screenshot_stable_detect:  # 静止检测会等地图惯性停下
+                    sleep(0.5)
                 auto.mouse_to_blank()
 
                 bus_position = auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True)

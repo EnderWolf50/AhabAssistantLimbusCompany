@@ -261,7 +261,8 @@ class Mirror:
 
             # 选择楼层主题包的情况
             if auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
-                sleep(2)  # 等待主题包页面加载完成再打开楼层设置
+                # 等主题包页面的楼层设置按钮出现；页面动画中点击无效时由 get_which_floor 重点
+                auto.wait_until(lambda: auto.find_element("mirror/theme_pack/theme_pack_setting_assets.png"), 2)
                 self.get_which_floor("mirror/theme_pack/theme_pack_setting_assets.png")
                 self._enter_hard_mode_if_needed()
                 switch_theme_pack_difficulty(self.hard_mode)
@@ -310,8 +311,9 @@ class Mirror:
                 if cfg.floor_3_exit and self.floor >= 4:
                     continue
 
-                while auto.take_screenshot() is None:
-                    continue
+                if not auto.screenshot_is_fresh(cfg.screenshot_interval or 0.85):
+                    while auto.take_screenshot() is None:
+                        continue
                 if auto.find_element("mirror/road_in_mir/legend_assets.png"):
                     _, elapsed = self._time_call(self.search_road)
                     self.find_road_total_time += elapsed
@@ -1081,9 +1083,11 @@ class Mirror:
                     return True
                 if self.mirror_map.enter_next_node(next_node):
                     return True
+                self.mirror_map.enter_failed()
             log.debug("未能构建路线图，尝试使用最近节点法重新寻路")
         except Exception as e:
             log.debug(f"使用onnx模型寻路出错:{e}")
+            self.mirror_map.enter_failed()
         finally:
             auto.mouse_to_blank()
         try:
@@ -1313,7 +1317,7 @@ class Mirror:
             auto.mouse_click(pos[0], pos[1] - 500 * my_scale)
             sleep(cfg.mouse_action_interval)
             auto.click_element("mirror/road_in_mir/acquire_ego_gift_select_assets.png", model="normal")
-            time.sleep(2)
+            auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
             if retry() is False:
                 return False
             return
@@ -1354,7 +1358,7 @@ class Mirror:
                             "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                             model="normal",
                         )
-                        time.sleep(2)
+                        auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                         if retry() is False:
                             return False
                         return
@@ -1390,7 +1394,7 @@ class Mirror:
                             "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                             model="normal",
                         )
-                        time.sleep(2)
+                        auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                         if retry() is False:
                             return False
                         return
@@ -1450,7 +1454,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                     if retry() is False:
                         return False
                     return
@@ -1462,7 +1466,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                     if retry() is False:
                         return False
                     return
@@ -1474,7 +1478,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                     if retry() is False:
                         return False
                     return
@@ -1567,13 +1571,17 @@ class Mirror:
         if setting_button is None:
             log.info("未找到镜牢楼层设置按钮，跳过楼层识别")
             return
+        def panel_open():
+            return auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75)
+
         auto.mouse_action_with_pos(setting_button)
-        sleep(1)  # 等待楼层设置面板展开后再识别进度
+        # 等待楼层设置面板展开；按钮在页面动画中可能点击无效，未展开就再点一次
+        if not auto.wait_until(panel_open, 1):
+            auto.mouse_action_with_pos(setting_button)
+            auto.wait_until(panel_open, 1)
 
         scale = cfg.set_win_size / 1440
-        if auto.find_element(
-            "mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True
-        ):
+        if panel_open():
             # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
             clear_floors = auto.find_element(
                 "mirror/road_in_mir/clear_floor.png",
@@ -1602,4 +1610,4 @@ class Mirror:
         else:
             log.info("未识别到当前镜牢楼层")
         auto.mouse_click_blank()
-        sleep(1)  # 等待设置窗口关闭
+        auto.wait_until(lambda: not panel_open(), 1)  # 等待设置窗口关闭

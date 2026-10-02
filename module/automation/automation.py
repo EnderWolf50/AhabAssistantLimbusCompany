@@ -592,11 +592,16 @@ class Automation(metaclass=SingletonMeta):
         return False
 
     def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0):
-        if my_crop is not None:
+        # 同一张截图、同一裁剪区域连续识别时复用上次结果（如先查白棉花再查已持有）
+        cached = getattr(self, "_last_ocr", None)
+        if cached is not None and cached[0] is self.screenshot and cached[1] == my_crop:
+            ocr_result = cached[2]
+        elif my_crop is not None:
             cropped_image = self.screenshot.crop(my_crop)
             ocr_result = ocr.run(cropped_image)
         else:
             ocr_result = ocr.run(self.screenshot)
+        self._last_ocr = (self.screenshot, my_crop, ocr_result)
 
         if not ocr_result.txts:
             return False if only_text else {}

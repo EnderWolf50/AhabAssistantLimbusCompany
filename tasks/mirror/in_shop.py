@@ -142,13 +142,20 @@ class Shop:
             if auto.take_screenshot() is None:
                 continue
             auto.mouse_to_blank()
+
+            # 提示是细红字，半尺寸识别只有 0.75，需全尺寸（约 0.93）
+            def cannot_toast():
+                return auto.find_element("mirror/shop/cannot_enhance_assets.png", full_scale=True)
+
+            # 提示会停留一阵：点击前已在画面上的是上一个饰品留下的，不能当作这次的结果
+            stale_toast = cannot_toast()
             if auto.click_element("mirror/shop/power_up_assets.png"):
                 auto.mouse_to_blank()
                 # 能升级会弹出确认框（带“强化等级 + / ++”选项）；不能升级（满级或连 + 的钱都不够）
                 # 只在右上角弹出“Cannot Enhance”提示。两者谁先出现就按谁处理，不必等满 1 秒
                 dialog = auto.wait_until(
                     lambda: auto.find_element("mirror/shop/enhance_tier_assets.png")
-                    or (auto.find_element("mirror/shop/cannot_enhance_assets.png") and "cannot"),
+                    or (not stale_toast and cannot_toast() and "cannot"),
                     1,
                 )
                 if not dialog or dialog == "cannot":

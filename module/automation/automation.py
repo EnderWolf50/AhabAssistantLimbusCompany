@@ -370,8 +370,8 @@ class Automation(metaclass=SingletonMeta):
     # 画面静止检测：缩略灰度图的平均像素差低于该值视为静止（0-255）
     STABLE_DIFF = 2.0
 
-    # 持续有输入、但画面超过这么多秒完全没变化，视为游戏卡死
-    FROZEN_SCREEN_LIMIT = 45
+    # 持续有输入、但画面超过这么多秒完全没变化，视为游戏卡死（参考 MaaFramework node 默认 timeout 20 秒）
+    FROZEN_SCREEN_LIMIT = 20
 
     def _watch_frozen(self, img: Image) -> None:
         thumb = self._thumbnail(img)

@@ -548,6 +548,7 @@ class Automation(metaclass=SingletonMeta):
         my_crop=None,
         min_dist=10,
         additional_stack=0,
+        full_scale=False,
     ):
         """
         查找元素，并根据指定的查找类型执行不同的查找策略。
@@ -584,6 +585,7 @@ class Automation(metaclass=SingletonMeta):
                         model=model,
                         my_crop=my_crop,
                         additional_stack=additional_stack,
+                        full_scale=full_scale,
                     )
                 elif find_type == "text":
                     # 使用文本查找方法查找元素
@@ -974,9 +976,12 @@ class Automation(metaclass=SingletonMeta):
         model="clam",
         my_crop=None,
         additional_stack=0,
+        full_scale=False,
     ):
         """
         在当前截图中查找目标图像的位置
+
+        full_scale: 忽略 recognition_scale 以原尺寸匹配（用于出售等不可逆操作，缩小后小图标更容易误配）
         """
         try:
             if self.memory_protection:
@@ -994,6 +999,8 @@ class Automation(metaclass=SingletonMeta):
                 return None
 
             scale = cfg.recognition_scale if cfg.recognition_scale and 0 < cfg.recognition_scale < 1 else 1.0
+            if full_scale:
+                scale = 1.0
             screenshot = self._scaled_screenshot(scale) if scale < 1 and not my_crop else np.array(self.screenshot)
             if my_crop:
                 screenshot = ImageUtils.crop(screenshot, my_crop)

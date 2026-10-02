@@ -71,6 +71,15 @@ class Shop:
     class RestartGame(Exception):
         pass
 
+    @staticmethod
+    def _goods_box():
+        """商店商品列表区域（2560x1440 下约 1040,420 - 2360,1030）"""
+        scale = cfg.set_win_size / 1440
+        return tuple(v * scale for v in (1040, 420, 2360, 1030))
+
+    def _goods_snapshot(self):
+        return np.asarray(auto.screenshot.convert("L").crop(self._goods_box()), dtype=np.int16)
+
     def ego_gift_to_power_up(self):
         loop_count = 30
         auto.model = "clam"
@@ -347,7 +356,8 @@ class Shop:
                             break
                     keyword_refresh_count += 1
                     auto.mouse_click_blank()
-                    sleep(3)
+                    # 实测确认后约 1 秒面板关闭时商品已刷新完毕；等商品区静止即可（原为固定 3 秒）
+                    auto.wait_freezes(target=self._goods_box(), timeout=3)
                     if retry() is False:
                         raise self.RestartGame()
                     if self.skill_replacement and self.replacement < 3:
@@ -356,9 +366,12 @@ class Shop:
 
             if normal_refresh_count < self.max_normal_refresh and my_remaining_money >= 200:
                 auto.mouse_click_blank(times=3)
+                goods_before = self._goods_snapshot()
                 if auto.click_element("mirror/shop/refresh_assets.png"):
                     normal_refresh_count += 1
-                    sleep(3)
+                    # 先等商品区与点击前不同（已刷新），再等它静止；合计最多约 3 秒（原为固定 3 秒）
+                    auto.wait_until(lambda: float(np.abs(self._goods_snapshot() - goods_before).mean()) > 2, 2)
+                    auto.wait_freezes(target=self._goods_box(), timeout=1)
                     if retry() is False:
                         raise self.RestartGame()
                     if self.skill_replacement and self.replacement < 3:

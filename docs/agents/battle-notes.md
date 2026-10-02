@@ -12,6 +12,7 @@ Observed game behaviour and AALC pitfalls in `tasks/battle/battle.py`. Read befo
 
 - `_defense_this_round()` clicks every skill slot (switches it to its defense skill), then drags a link from the left gear through all slots to the right gear. Re-clicking a slot toggles it back, so a failed defense is not retried; it falls back to P+Enter (attacks instead).
 - The solo-defense quota (`DefenseForSoloState`, 小指良单通连续防御, 5 turns per mirror) is consumed only after the turn actually started (#18). A failed defense keeps the turn for later.
+- The quota lives on the `Mirror` object, created when a mirror run starts in this AALC process. Starting AALC again in the middle of a mirror (or restarting the test runner to resume one) creates a new object with a full quota, so later floors defend again. AALC's own game restarts keep the object. The user chose to keep this behaviour; account for it when reading resumed test runs.
 - Known cause of failed defenses: the user switching to the MuMu window (Alt+Tab, mouse over the emulator) while the drag is injected. It happened in two runs; the user considers the P+Enter fallback acceptable. Keep the window untouched during validation runs.
 - Timings on MuMu after #9: ~4.1–4.7 s from the selection screen to the turn running (was ~10 s).
 

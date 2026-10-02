@@ -1574,6 +1574,10 @@ class Mirror:
         def panel_open():
             return auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75)
 
+        # 主题包页面进场动画中点击设置按钮无效：先等按钮附近区域静止再点
+        half = 100 * cfg.set_win_size / 1440
+        x, y = setting_button
+        auto.wait_freezes(target=(x - half, y - half, x + half, y + half))
         auto.mouse_action_with_pos(setting_button)
         # 等待楼层设置面板展开；按钮在页面动画中可能点击无效，未展开就再点一次
         if not auto.wait_until(panel_open, 1):

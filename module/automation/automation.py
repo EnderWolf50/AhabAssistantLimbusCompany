@@ -248,8 +248,13 @@ class Automation(metaclass=SingletonMeta):
         click=True,
         drag_time=None,
         interval=0.5,
+        pre_wait_freezes=None,
     ):
-        """查找并点击屏幕上的元素"""
+        """查找并点击屏幕上的元素
+
+        pre_wait_freezes: 毫秒。点击前等目标附近区域静止（参考 MaaFramework），用于按钮在动画中就能识别、
+        但动画结束前点击无效的情况。
+        """
         if model is None:
             model = self.model
         coordinates = self.find_element(
@@ -263,6 +268,11 @@ class Automation(metaclass=SingletonMeta):
             additional_stack=1,
         )
         if coordinates:
+            if click and pre_wait_freezes and find_type == "image":
+                # ponytail: 目标区域取中心 ±100 px，而非模板实际大小；需要更精确时再按模板 bbox 计算
+                half = 100 * cfg.set_win_size / 1440
+                x, y = coordinates
+                self.wait_freezes(target=(x - half, y - half, x + half, y + half), time_ms=pre_wait_freezes)
             if click:
                 return self.mouse_action_with_pos(
                     coordinates,
@@ -482,6 +492,36 @@ class Automation(metaclass=SingletonMeta):
 
                 init_game()
                 start_time = time.time()
+
+    def wait_freezes(self, target=None, time_ms: int = 100, threshold: float = 0.95, timeout: float = 2.0) -> bool:
+        """参考 MaaFramework 的 wait_freezes：连续截图，直到 target 区域连续 time_ms 毫秒没有明显变化。
+
+        target 为 (x1, y1, x2, y2)，None 时比较整个画面（缩小后）。“没有明显变化”指前后两帧
+        TM_CCOEFF_NORMED 相似度 >= threshold（MaaFramework 默认 0.95）。超过 timeout 秒仍在变化返回 False。
+        """
+        deadline = time.time() + timeout
+        prev = None
+        prev_time = 0.0
+        still_since = None
+        while True:
+            while self.take_screenshot() is None:
+                continue
+            now = time.time()
+            img = self.screenshot.convert("L")
+            img = img.crop(target) if target is not None else img.resize((640, 360))
+            cur = np.asarray(img, dtype=np.float32)
+            if prev is not None and (
+                np.array_equal(prev, cur)
+                or float(cv2.matchTemplate(cur, prev, cv2.TM_CCOEFF_NORMED)[0][0]) >= threshold
+            ):
+                still_since = still_since or prev_time
+                if now - still_since >= time_ms / 1000:
+                    return True
+            else:
+                still_since = None
+            prev, prev_time = cur, now
+            if now > deadline:
+                return False
 
     def wait_until(self, condition, timeout: float):
         """连续截图直到 condition() 为真或超过 timeout 秒，返回 condition() 最后一次的结果。

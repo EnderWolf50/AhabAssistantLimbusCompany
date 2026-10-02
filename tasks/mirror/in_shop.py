@@ -92,6 +92,8 @@ class Shop:
                     return np.asarray(auto.screenshot.convert("L").crop(preview_box), dtype=np.int16)
 
                 # 先选 ++ 一次升到满级；钱不够（确认按钮变灰）改选 +；+ 也不够就停止升级其他饰品
+                # 确认框淡入期间预览也在变，先等它静止再作为点击前的基准
+                auto.wait_freezes(target=preview_box)
                 for tier in ("++", "+"):
                     x = 2060 if tier == "++" else 1814
                     before = preview()

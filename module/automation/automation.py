@@ -57,6 +57,8 @@ class Automation(metaclass=SingletonMeta):
         self._unavailable_feature_templates: set[str] = set()
         self.last_screenshot_time = 0
         self.last_click_time = 0
+        # 任意输入（业务或监控线程）最后发生的时间，用于判断截图是否早于输入而过时
+        self._last_input_time = 0.0
         self.model = "clam"
 
     def init_input(self):
@@ -149,10 +151,16 @@ class Automation(metaclass=SingletonMeta):
                 with self._input_lock:
                     if gate_open and self._interaction_gate.is_set():
                         method = getattr(self.input_handler, method_name)
-                        return method(*args, **kwargs)
+                        try:
+                            return method(*args, **kwargs)
+                        finally:
+                            self._last_input_time = time.time()
                     if not gate_open:
                         method = getattr(self.input_handler, method_name)
-                        return method(*args, **kwargs)
+                        try:
+                            return method(*args, **kwargs)
+                        finally:
+                            self._last_input_time = time.time()
                     # gate_open 但等待输入锁期间门被关闭:重新等待
 
         return wrapper
@@ -160,7 +168,19 @@ class Automation(metaclass=SingletonMeta):
     def monitor_mouse_click(self, x, y, times=1):
         """由系统监控线程点击，不等待该监控线程设置的互斥门。"""
         with self._input_lock:
-            return self.input_handler.mouse_click(x, y, times=times)
+            try:
+                return self.input_handler.mouse_click(x, y, times=times)
+            finally:
+                self._last_input_time = time.time()
+
+    def screenshot_is_fresh(self, max_age: float) -> bool:
+        """当前业务截图是否可直接复用：灰度、在 max_age 秒内截取，且截取后没有发生过输入。"""
+        return (
+            self.screenshot is not None
+            and getattr(self.screenshot, "mode", None) == "L"
+            and time.time() - self.last_screenshot_time < max_age
+            and self._last_input_time <= self.last_screenshot_time
+        )
 
     def _remember_screenshot(self, screenshot: Image | None) -> None:
         if screenshot is None:

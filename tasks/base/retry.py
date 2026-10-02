@@ -138,15 +138,18 @@ def check_times(start_time, timeout=90, logs=True):
 def retry():
     """重试连接。
 
-    为保证稳定性，retry 内循环始终刷新截图，避免复用旧帧导致误判。
+    首轮检查复用调用方刚截取、且之后没有发生输入的截图，避免再等一次 screenshot_interval；
+    之后的循环（处理过弹窗或重启后）始终刷新截图，避免复用旧帧导致误判。
     """
     start_time = time.time()
     is_windows = not cfg.config.simulator
     if is_windows:
         saved_hwnd = screen.handle.hwnd
+    reuse_screenshot = auto.screenshot_is_fresh(cfg.screenshot_interval or 0.85)
     while True:
         if ensure_simulator_game_started():
             start_time = time.time()
+            reuse_screenshot = False
             continue
         if is_windows and screen.handle.hwnd != saved_hwnd:
             # 句柄发生变化则重置初始时间, 以免误判卡死
@@ -156,7 +159,9 @@ def retry():
             start_time = max(start_time, auto.get_restore_time())
         if check_times(start_time):
             return False
-        if auto.take_screenshot() is None:
+        if reuse_screenshot:
+            reuse_screenshot = False
+        elif auto.take_screenshot() is None:
             continue
         if auto.find_element("base/connecting_assets.png"):
             continue

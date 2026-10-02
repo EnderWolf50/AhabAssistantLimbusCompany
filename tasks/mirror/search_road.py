@@ -16,6 +16,16 @@ ROAD_COLUMN_GAP = 520
 ROAD_ROW_GAP = 437
 
 
+def _bus_drag_kwargs() -> dict:
+    """MuMu 拖动地图：实测每点 0.01 s、抬起前停 0.4 s 约 0.93 s 拖完且不滑动（默认 0.02 s/0.5 s 约 1.55 s）。
+
+    每点 0.005 s 会把地图甩出画面；停 0.3 s 抬起后仍会滑动约 20 px。其他输入方式维持原样。
+    """
+    if cfg.simulator and cfg.simulator_type == 0:
+        return {"point_sleep": 0.01, "hold": 0.4}
+    return {}
+
+
 class MirrorMap:
     def __init__(self, floor=1, hard_mode=False):
         self.floor = floor
@@ -218,7 +228,7 @@ def search_road_default_distance():
             if 600 * scale < bus_position[1] < 700 * scale:
                 break
             dy = 650 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy)
+            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=0, dy=dy, **_bus_drag_kwargs())
             sleep(1)
             auto.mouse_to_blank()
 
@@ -308,7 +318,7 @@ def search_road_from_road_map(hard_mode=False, check_bus_on_node=True):
                 break
             dx = 80 * scale - bus_position[0]
             dy = 690 * scale - bus_position[1]
-            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+            auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy, **_bus_drag_kwargs())
             if not cfg.screenshot_stable_detect:  # 静止检测会等地图惯性停下
                 sleep(0.5)
             auto.mouse_to_blank()
@@ -367,7 +377,7 @@ def search_road_from_road_map(hard_mode=False, check_bus_on_node=True):
                     break
                 dx = 550 * scale - bus_position[0]
                 dy = set_y_position - bus_position[1]
-                auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy)
+                auto.mouse_drag(bus_position[0], bus_position[1], drag_time=1.5, dx=dx, dy=dy, **_bus_drag_kwargs())
                 if not cfg.screenshot_stable_detect:  # 静止检测会等地图惯性停下
                     sleep(0.5)
                 auto.mouse_to_blank()

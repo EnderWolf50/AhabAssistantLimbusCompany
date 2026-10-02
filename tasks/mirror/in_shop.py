@@ -1,5 +1,6 @@
 from time import sleep
 
+import numpy as np
 from PIL import Image
 
 from module.automation import auto
@@ -84,12 +85,20 @@ class Shop:
                 if not auto.wait_until(lambda: auto.find_element("mirror/shop/enhance_tier_assets.png"), 1):
                     return True
                 scale = cfg.set_win_size / 1440
+                # 右上角的金额预览（如 94 ▸ 44），选不同等级时会变化
+                preview_box = tuple(v * scale for v in (1880, 150, 2200, 260))
+
+                def preview():
+                    return np.asarray(auto.screenshot.convert("L").crop(preview_box), dtype=np.int16)
+
                 # 先选 ++ 一次升到满级；钱不够（确认按钮变灰）改选 +；+ 也不够就停止升级其他饰品
                 for tier in ("++", "+"):
                     x = 2060 if tier == "++" else 1814
+                    before = preview()
                     auto.mouse_click(x * scale, 1022 * scale)
-                    sleep(0.3)  # 等确认按钮按所选等级的费用刷新
-                    if auto.find_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True):
+                    # 等金额预览按所选等级刷新；该等级已选中或不可选时预览不变，最多等 0.5 秒
+                    auto.wait_until(lambda: np.abs(preview() - before).mean() > 2, 0.5)
+                    if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                         break
                 else:
                     log.debug("剩余金钱不足以升级，停止升级其他饰品")

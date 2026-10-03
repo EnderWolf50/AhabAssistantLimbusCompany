@@ -56,6 +56,19 @@ def ensure_simulator_game_started() -> bool:
     return True
 
 
+def close_first_prompt() -> bool:
+    """关闭首次进入页面时的说明（右侧有 ▶ 翻页）。返回是否处理了说明。
+
+    说明本身是整页图片，左上角的返回键样式与 home/back_assets 不同（0.44），不能靠它关闭；
+    Esc（Android 返回）可以。没有说明时 first_prompt 最高约 0.70，阈值 0.9 不会误按。
+    """
+    if not auto.find_element("home/first_prompt_assets.png", model="clam", threshold=0.9):
+        return False
+    if not auto.click_element("home/back_assets.png", model="normal"):
+        auto.key_press("esc")
+    return True
+
+
 def click_title_screen_safely() -> None:
     """标题页点击入口，避开账号、清缓存和中间弹窗区域。"""
     global _last_title_screen_tap_time

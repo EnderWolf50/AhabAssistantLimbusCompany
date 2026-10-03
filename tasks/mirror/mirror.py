@@ -18,7 +18,7 @@ from module.ocr import ocr
 from tasks import all_systems, observe_system, start_gift
 from tasks.base.back_init_menu import back_init_menu
 from tasks.base.make_enkephalin_module import make_enkephalin_module
-from tasks.base.retry import retry
+from tasks.base.retry import close_first_prompt, retry
 from tasks.battle import battle
 from tasks.battle.battle import DefenseForSoloState
 from tasks.event import event_handling
@@ -137,10 +137,7 @@ class Mirror:
             auto.mouse_to_blank()
             if retry() is False:
                 return False
-            if auto.find_element("home/first_prompt_assets.png", model="clam") and auto.find_element(
-                "home/back_assets.png", model="normal"
-            ):
-                auto.click_element("home/back_assets.png")
+            if close_first_prompt():
                 continue
             if auto.find_element("mirror/claim_reward/clear_assets.png"):
                 self.bequest_from_the_previous_game = True
@@ -465,10 +462,7 @@ class Mirror:
                 auto.click_element("mirror/infinity_mirror_close_assets.png")
                 continue
 
-            if auto.find_element("home/first_prompt_assets.png", model="clam") and auto.find_element(
-                "home/back_assets.png", model="normal"
-            ):
-                auto.click_element("home/back_assets.png")
+            if close_first_prompt():
                 continue
 
             # 防卡死

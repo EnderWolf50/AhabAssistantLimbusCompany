@@ -534,10 +534,13 @@ class Automation(metaclass=SingletonMeta):
             img = ScreenShot.take_screenshot(False)
         if img is None:
             return None
+        return self._to_rgb(img)
+
+    @staticmethod
+    def _to_rgb(img: Image) -> np.ndarray:
+        """彩色截图转成真正的 RGB 数组（模拟器截图的通道是 BGR）。"""
         color = np.asarray(img.convert("RGB"))
-        if cfg.simulator:
-            color = color[:, :, ::-1]
-        return color
+        return color[:, :, ::-1] if cfg.simulator else color
 
     def wait_until(self, condition, timeout: float):
         """连续截图直到 condition() 为真或超过 timeout 秒，返回 condition() 最后一次的结果。
@@ -1070,10 +1073,9 @@ class Automation(metaclass=SingletonMeta):
 
     def get_screenshot_crop(self, crop):
         """
-        获取指定区域的彩色截图
+        获取指定区域的彩色截图（BGR，与 tasks.sins 的颜色表一致）
         """
         self.take_screenshot(False)
-        screenshot = np.array(self.screenshot)
-        screenshot = screenshot[:, :, ::-1]
+        screenshot = self._to_rgb(self.screenshot)[:, :, ::-1]
         screenshot = ImageUtils.crop(screenshot, crop)
         return screenshot

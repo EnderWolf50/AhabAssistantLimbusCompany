@@ -330,6 +330,18 @@ class ConfigModel(BaseModel):
     screenshot_interval: float
     """截图间隔时间"""
 
+    screenshot_stable_detect: bool
+    """画面静止检测：画面静止时立即返回截图，截图间隔变为上限"""
+
+    screenshot_min_interval: float
+    """画面静止检测时的最短截图间隔"""
+
+    post_input_min_wait: float
+    """画面静止检测：输入后至少等待多久才接受“静止”"""
+
+    recognition_scale: float
+    """模板匹配前对截图与模板的缩放比例（1.0 为不缩放）"""
+
     mouse_action_interval: float
     """鼠标操作间隔时间"""
 

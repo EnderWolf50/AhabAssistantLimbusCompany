@@ -9,6 +9,9 @@ class AbstractInput:
     Tips: 有特殊需求写在对应方法描述中
     """
 
+    # 该适配器中什么都不做的占位输入方法名；调用它们不算一次输入（不刷新最后输入时间）
+    NO_OP_INPUTS: frozenset[str] = frozenset()
+
     def __init__(self) -> None:
         self.is_pause: bool = False
         self.restore_time: float | None = None

@@ -18,7 +18,7 @@ from module.ocr import ocr
 from tasks import all_systems, observe_system, start_gift
 from tasks.base.back_init_menu import back_init_menu
 from tasks.base.make_enkephalin_module import make_enkephalin_module
-from tasks.base.retry import retry
+from tasks.base.retry import close_first_prompt, retry
 from tasks.battle import battle
 from tasks.battle.battle import DefenseForSoloState
 from tasks.event import event_handling
@@ -45,6 +45,8 @@ def to_log_with_time(msg, elapsed_time):
 
 
 class Mirror:
+    EVENT_TIMEOUT = 300  # 单个事件处理的总时长上限（秒）
+
     def __init__(self, team_setting: TeamSetting, team_num: int):
         team_setting = team_setting.model_copy(deep=True)  # 避免修改原始配置
         self.logger = log
@@ -137,10 +139,7 @@ class Mirror:
             auto.mouse_to_blank()
             if retry() is False:
                 return False
-            if auto.find_element("home/first_prompt_assets.png", model="clam") and auto.find_element(
-                "home/back_assets.png", model="normal"
-            ):
-                auto.click_element("home/back_assets.png")
+            if close_first_prompt():
                 continue
             if auto.find_element("mirror/claim_reward/clear_assets.png"):
                 self.bequest_from_the_previous_game = True
@@ -261,7 +260,8 @@ class Mirror:
 
             # 选择楼层主题包的情况
             if auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
-                sleep(2)  # 等待主题包页面加载完成再打开楼层设置
+                # 等主题包页面的楼层设置按钮出现；页面动画中点击无效时由 get_which_floor 重点
+                auto.wait_until(lambda: auto.find_element("mirror/theme_pack/theme_pack_setting_assets.png"), 2)
                 self.get_which_floor("mirror/theme_pack/theme_pack_setting_assets.png")
                 self._enter_hard_mode_if_needed()
                 switch_theme_pack_difficulty(self.hard_mode)
@@ -271,12 +271,11 @@ class Mirror:
                 try:
                     if self.floor != 1:
                         if self.floor_times[self.floor - 2] > 0:
-                            floor_time = time.time() - self.floor_times[self.floor - 2]
-                            msg = f"启动后第{self.floor}层卡包"
-                        else:
-                            floor_time = time.time() - self.floor_times[0]
+                            to_log_with_time(f"启动后第{self.floor}层卡包", time.time() - self.floor_times[self.floor - 2])
+                        elif self.floor_times[0] > 0:
                             msg = f"启动后第{self.floor}层卡包，该楼层时间不完整"
-                        to_log_with_time(msg, floor_time)
+                            to_log_with_time(msg, time.time() - self.floor_times[0])
+                        # 中途接续的镜牢没有更早楼层的记录（-9999），不输出耗时
                     self.floor_times[self.floor - 1] = time.time()
                 except:
                     log.info("楼层异常，可能是OCR识别错误，本轮镜牢层间的时间记录无效")
@@ -310,8 +309,9 @@ class Mirror:
                 if cfg.floor_3_exit and self.floor >= 4:
                     continue
 
-                while auto.take_screenshot() is None:
-                    continue
+                if not auto.screenshot_is_fresh(cfg.screenshot_interval or 0.85):
+                    while auto.take_screenshot() is None:
+                        continue
                 if auto.find_element("mirror/road_in_mir/legend_assets.png"):
                     _, elapsed = self._time_call(self.search_road)
                     self.find_road_total_time += elapsed
@@ -380,7 +380,7 @@ class Mirror:
                     continue
             else:
                 turn_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_assets.png"))
-                turn_ocr_result = auto.find_text_element("turn", turn_bbox)
+                turn_ocr_result = auto.find_text_element("turn", turn_bbox, fast=True)
                 if turn_ocr_result is not False:
                     self._fight()
                     continue
@@ -463,10 +463,7 @@ class Mirror:
                 auto.click_element("mirror/infinity_mirror_close_assets.png")
                 continue
 
-            if auto.find_element("home/first_prompt_assets.png", model="clam") and auto.find_element(
-                "home/back_assets.png", model="normal"
-            ):
-                auto.click_element("home/back_assets.png")
+            if close_first_prompt():
                 continue
 
             # 防卡死
@@ -712,9 +709,8 @@ class Mirror:
             log.debug(team_history)
 
         try:
-            last_floor_time = time.time() - self.floor_times[self.floor - 1]
-            msg = f"启动后第{self.floor}层卡包"
-            to_log_with_time(msg, last_floor_time)
+            if self.floor_times[self.floor - 1] > 0:  # 中途接续时没有本层开始时间
+                to_log_with_time(f"启动后第{self.floor}层卡包", time.time() - self.floor_times[self.floor - 1])
         except:
             log.info("楼层异常，可能是OCR识别错误，本轮镜牢层间的时间记录无效")
 
@@ -1081,9 +1077,11 @@ class Mirror:
                     return True
                 if self.mirror_map.enter_next_node(next_node):
                     return True
+                self.mirror_map.enter_failed()
             log.debug("未能构建路线图，尝试使用最近节点法重新寻路")
         except Exception as e:
             log.debug(f"使用onnx模型寻路出错:{e}")
+            self.mirror_map.enter_failed()
         finally:
             auto.mouse_to_blank()
         try:
@@ -1180,6 +1178,13 @@ class Mirror:
 
             if retry() is False:
                 return False
+
+            # 变灰的 SKIP 仍能匹配，点了之后 continue 会跳过下面的失败计数；画面在动时卡死检测也不会触发。
+            # 正常事件约 5–13 秒，超过这个总时长就走失败流程
+            if time.time() - event_start_time > self.EVENT_TIMEOUT:
+                log.error(f"事件处理超过 {self.EVENT_TIMEOUT} 秒，尝试回到初始界面")
+                back_init_menu()
+                break
 
             # 如果在战斗中或回到镜牢路线图中，则跳出循环
             if auto.find_element("battle/turn_assets.png"):
@@ -1313,7 +1318,7 @@ class Mirror:
             auto.mouse_click(pos[0], pos[1] - 500 * my_scale)
             sleep(cfg.mouse_action_interval)
             auto.click_element("mirror/road_in_mir/acquire_ego_gift_select_assets.png", model="normal")
-            time.sleep(2)
+            auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
             if retry() is False:
                 return False
             return
@@ -1339,11 +1344,11 @@ class Mirror:
                             button[1] + 350 * my_scale,
                         )
                         if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
+                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox, fast=True)
                             if isinstance(ocr_result, list):
                                 if len(ocr_result) >= 2:
                                     continue
-                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox))
+                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox, fast=True))
                         gift_candidates.append((is_owned, button))
 
                     if gift_candidates:
@@ -1354,7 +1359,7 @@ class Mirror:
                             "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                             model="normal",
                         )
-                        time.sleep(2)
+                        auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                         if retry() is False:
                             return False
                         return
@@ -1367,7 +1372,7 @@ class Mirror:
                             button[1] + 350 * my_scale,
                         )
                         if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
+                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox, fast=True)
                             if isinstance(ocr_result, list):
                                 if len(ocr_result) >= 2:
                                     time.sleep(1)
@@ -1390,7 +1395,7 @@ class Mirror:
                             "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                             model="normal",
                         )
-                        time.sleep(2)
+                        auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                         if retry() is False:
                             return False
                         return
@@ -1404,10 +1409,10 @@ class Mirror:
                             button[1] + 350 * my_scale,
                         )
                         if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
+                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox, fast=True)
                             if ocr_result:
                                 continue
-                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox))
+                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox, fast=True))
                         gift_candidate = (is_owned, button)
                         if auto.find_element(
                             f"mirror/road_in_mir/acquire_ego_gift/{self.system}.png",
@@ -1450,7 +1455,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                     if retry() is False:
                         return False
                     return
@@ -1462,7 +1467,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                     if retry() is False:
                         return False
                     return
@@ -1474,7 +1479,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 2)
                     if retry() is False:
                         return False
                     return
@@ -1567,17 +1572,28 @@ class Mirror:
         if setting_button is None:
             log.info("未找到镜牢楼层设置按钮，跳过楼层识别")
             return
+        def panel_open():
+            return auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75)
+
+        # 主题包页面进场动画中点击设置按钮无效：先等按钮附近区域静止再点
+        half = 100 * cfg.set_win_size / 1440
+        x, y = setting_button
+        auto.wait_freezes(target=(x - half, y - half, x + half, y + half))
         auto.mouse_action_with_pos(setting_button)
-        sleep(1)  # 等待楼层设置面板展开后再识别进度
+        # 等待楼层设置面板展开；按钮在页面动画中可能点击无效，未展开就再点一次
+        if not auto.wait_until(panel_open, 1):
+            auto.mouse_action_with_pos(setting_button)
+            auto.wait_until(panel_open, 1)
 
         scale = cfg.set_win_size / 1440
-        if auto.find_element(
-            "mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True
-        ):
+        if panel_open():
             # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
+            # CLEAR 模板只有 35x13，1080p 缩到 26x10 后部分标记只有 0.79（MuMu/LD 实测把第 4 层认成第 2 层）；
+            # 画面其他位置最高约 0.48，阈值 0.7 两边都有余量
             clear_floors = auto.find_element(
                 "mirror/road_in_mir/clear_floor.png",
                 find_type="image_with_multiple_targets",
+                threshold=0.7,
                 take_screenshot=True,
                 min_dist=80 * scale,
             )
@@ -1602,4 +1618,4 @@ class Mirror:
         else:
             log.info("未识别到当前镜牢楼层")
         auto.mouse_click_blank()
-        sleep(1)  # 等待设置窗口关闭
+        auto.wait_until(lambda: not panel_open(), 1)  # 等待设置窗口关闭

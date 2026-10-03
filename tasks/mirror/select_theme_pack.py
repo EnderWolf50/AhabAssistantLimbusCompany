@@ -31,6 +31,11 @@ def switch_theme_pack_difficulty(hard_mode=False):
     log.info(f"镜牢主题包难度切换{'成功' if switched == target else '失败'}: {current} -> {switched}")
 
 
+def _wait_map():
+    """拖入卡包后等进入楼层地图（最多 3 秒，原为固定 3 秒）。"""
+    auto.wait_until(lambda: auto.find_element("mirror/road_in_mir/legend_assets.png"), 3)
+
+
 @begin_and_finish_time_log(task_name="选择镜牢主题包")
 # 选择镜牢主题包
 def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_theme_pack_weight=False):
@@ -73,7 +78,7 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                     all_theme_pack.sort(key=lambda pos: (pos[0], pos[1]))
                     auto.mouse_drag_down(all_theme_pack[0][0], all_theme_pack[0][1])
                     log.debug(f"选择卡包: {all_theme_pack[0]}")
-                    sleep(3)
+                    _wait_map()
                     msg = "此次主题包选择了最左边的（活动）卡包"
                     log.info(msg)
                     return
@@ -82,7 +87,6 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
             if all_theme_pack := auto.find_element(
                 "mirror/theme_pack/theme_pack_features.png",
                 find_type="image_with_multiple_targets",
-                take_screenshot=True,
             ):
                 if floor == 5 and cfg.skip_event_pack:
                     all_theme_pack.sort(key=lambda pos: (pos[0], pos[1]))
@@ -97,7 +101,7 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                         min(pack[1] + 390 * scale, cfg.set_win_size),
                     )
                     crop = (top_left[0], top_left[1], bottom_right[0], bottom_right[1])
-                    result = auto.find_language_text(theme_pack_list_zh, theme_pack_list_en, crop)
+                    result = auto.find_language_text(theme_pack_list_zh, theme_pack_list_en, crop, fast=True)
                     if isinstance(result, TextMatchResult):
                         theme_pack_weight = result.value
                         theme_pack_name = result.text
@@ -117,7 +121,7 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                     pack = all_theme_pack[max_index]
                     auto.mouse_drag_down(pack[0], pack[1])
                     log.debug(f"选择卡包: {pack}")
-                    sleep(3)
+                    _wait_map()
                     msg = f"此次选择卡包关键词：{pack_name[max_index]}"
                     log.info(msg)
                     return

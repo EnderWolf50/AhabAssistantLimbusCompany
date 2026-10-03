@@ -5,6 +5,7 @@ from module.automation import auto
 from module.config import cfg
 from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
+from tasks.base.retry import close_first_prompt
 
 WINDOWS_ORDERED_TEAM_PAGE_SWIPE_DISTANCE = 400
 NAMED_TEAM_PAGE_SWIPE_DISTANCE = 385
@@ -123,10 +124,7 @@ def select_battle_team(num):
     find = False
     while auto.take_screenshot() is None:
         continue
-    if auto.find_element("home/first_prompt_assets.png", model="clam") and auto.find_element(
-        "home/back_assets.png", model="normal"
-    ):
-        auto.click_element("home/back_assets.png")
+    close_first_prompt()
     if identify_position := auto.find_element("teams/identify_assets.png", take_screenshot=True):
         position = [identify_position[0] - 2150 * scale, identify_position[1] + 215 * scale]
         auto.mouse_click(1, 1)

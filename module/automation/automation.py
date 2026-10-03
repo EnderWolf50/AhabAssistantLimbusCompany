@@ -57,6 +57,8 @@ class Automation(metaclass=SingletonMeta):
         self._unavailable_feature_templates: set[str] = set()
         self.last_screenshot_time = 0
         self.last_click_time = 0
+        # 任意输入（业务或监控线程）最后发生的时间，用于判断截图是否早于输入而过时
+        self._last_input_time = 0.0
         self.model = "clam"
 
     def init_input(self):
@@ -149,18 +151,41 @@ class Automation(metaclass=SingletonMeta):
                 with self._input_lock:
                     if gate_open and self._interaction_gate.is_set():
                         method = getattr(self.input_handler, method_name)
-                        return method(*args, **kwargs)
+                        try:
+                            return method(*args, **kwargs)
+                        finally:
+                            self._mark_input(method_name)
                     if not gate_open:
                         method = getattr(self.input_handler, method_name)
-                        return method(*args, **kwargs)
+                        try:
+                            return method(*args, **kwargs)
+                        finally:
+                            self._mark_input(method_name)
                     # gate_open 但等待输入锁期间门被关闭:重新等待
 
         return wrapper
 
+    def _mark_input(self, method_name: str) -> None:
+        """记录一次输入的时间；适配器中的占位空操作不算输入。"""
+        if method_name not in self.input_handler.NO_OP_INPUTS:
+            self._last_input_time = time.time()
+
     def monitor_mouse_click(self, x, y, times=1):
         """由系统监控线程点击，不等待该监控线程设置的互斥门。"""
         with self._input_lock:
-            return self.input_handler.mouse_click(x, y, times=times)
+            try:
+                return self.input_handler.mouse_click(x, y, times=times)
+            finally:
+                self._last_input_time = time.time()
+
+    def screenshot_is_fresh(self, max_age: float) -> bool:
+        """当前业务截图是否可直接复用：灰度、在 max_age 秒内截取，且截取后没有发生过输入。"""
+        return (
+            self.screenshot is not None
+            and getattr(self.screenshot, "mode", None) == "L"
+            and time.time() - self.last_screenshot_time < max_age
+            and self._last_input_time <= self.last_screenshot_time
+        )
 
     def _remember_screenshot(self, screenshot: Image | None) -> None:
         if screenshot is None:
@@ -223,8 +248,13 @@ class Automation(metaclass=SingletonMeta):
         click=True,
         drag_time=None,
         interval=0.5,
+        pre_wait_freezes=None,
     ):
-        """查找并点击屏幕上的元素"""
+        """查找并点击屏幕上的元素
+
+        pre_wait_freezes: 毫秒。点击前等目标附近区域静止（参考 MaaFramework），用于按钮在动画中就能识别、
+        但动画结束前点击无效的情况。
+        """
         if model is None:
             model = self.model
         coordinates = self.find_element(
@@ -238,6 +268,11 @@ class Automation(metaclass=SingletonMeta):
             additional_stack=1,
         )
         if coordinates:
+            if click and pre_wait_freezes and find_type == "image":
+                # ponytail: 目标区域取中心 ±100 px，而非模板实际大小；需要更精确时再按模板 bbox 计算
+                half = 100 * cfg.set_win_size / 1440
+                x, y = coordinates
+                self.wait_freezes(target=(x - half, y - half, x + half, y + half), time_ms=pre_wait_freezes)
             if click:
                 return self.mouse_action_with_pos(
                     coordinates,
@@ -342,6 +377,70 @@ class Automation(metaclass=SingletonMeta):
 
         return True
 
+    # 画面静止检测：缩略灰度图的平均像素差低于该值视为静止（0-255）
+    STABLE_DIFF = 2.0
+
+    # 持续有输入、但画面超过这么多秒完全没变化，视为游戏卡死（参考 MaaFramework node 默认 timeout 20 秒）
+    FROZEN_SCREEN_LIMIT = 20
+
+    def _watch_frozen(self, img: Image) -> None:
+        thumb = self._thumbnail(img)
+        prev = getattr(self, "_frozen_watch_thumb", None)
+        # 卡死的画面逐像素不变；看局部最大差而非平均差，否则只有进度条在走的加载画面会被当成卡死
+        if prev is None or int(np.abs(thumb - prev).max()) > 8:
+            self._last_screen_change = time.time()
+        self._frozen_watch_thumb = thumb
+
+    def screen_frozen(self) -> bool:
+        """最近一次画面变化之后仍有输入，且画面已超过 FROZEN_SCREEN_LIMIT 秒没有变化。"""
+        changed = getattr(self, "_last_screen_change", None)
+        return (
+            changed is not None
+            and self._last_input_time > changed
+            and time.time() - changed > self.FROZEN_SCREEN_LIMIT
+        )
+
+    def reset_frozen_watch(self) -> None:
+        self._last_screen_change = time.time()
+
+    @staticmethod
+    def _thumbnail(img: Image) -> np.ndarray:
+        return np.asarray(img.convert("L").resize((128, 72)), dtype=np.int16)
+
+    def _take_stable_screenshot(self, gray: bool, max_interval: float) -> Image | None:
+        """以 screenshot_min_interval 连续截图，画面静止时立即返回；画面持续变化时最多等到 max_interval。
+
+        参考 MaaFramework 的 pre_wait_freezes：用“等到画面静止”代替“每次都等固定时间”。
+        max_interval 与原 screenshot_interval 相同，因此不会比固定间隔更慢。
+        """
+        min_interval = cfg.screenshot_min_interval if cfg.screenshot_min_interval else 0.1
+        # 发生输入后至少等待这么久才接受“静止”，避免拿到输入前的旧画面而重复点击
+        post_input_wait = cfg.post_input_min_wait
+        deadline = self.last_screenshot_time + max_interval
+        prev = getattr(self, "_stable_prev_thumb", None)
+        prev_time = getattr(self, "_stable_prev_time", 0.0)
+        while True:
+            now = time.time()
+            wait = max(min_interval - (now - prev_time), post_input_wait - (now - self._last_input_time), 0)
+            if wait > 0:
+                time.sleep(wait)
+            with self._screenshot_lock:
+                result = ScreenShot.take_screenshot(gray)
+                self._remember_screenshot(result)
+            if result is None:
+                return None
+            thumb = self._thumbnail(result)
+            captured_at = time.time()
+            stable = (
+                prev is not None
+                and prev_time > self._last_input_time
+                and float(np.abs(thumb - prev).mean()) < self.STABLE_DIFF
+            )
+            prev, prev_time = thumb, captured_at
+            self._stable_prev_thumb, self._stable_prev_time = thumb, captured_at
+            if stable or captured_at >= deadline:
+                return result
+
     def take_screenshot(self, gray: bool = True) -> Image | None:
         """
         截取当前屏幕并返回图像对象。
@@ -354,19 +453,23 @@ class Automation(metaclass=SingletonMeta):
         screenshot_interval_time = cfg.screenshot_interval if cfg.screenshot_interval else 0.85
         while True:
             try:
-                if time.time() - self.last_screenshot_time < screenshot_interval_time:
-                    wait_time = max(
-                        screenshot_interval_time - (time.time() - self.last_screenshot_time),
-                        0,
-                    )
-                    time.sleep(wait_time)
+                if cfg.screenshot_stable_detect:
+                    result = self._take_stable_screenshot(gray, screenshot_interval_time)
+                else:
+                    if time.time() - self.last_screenshot_time < screenshot_interval_time:
+                        wait_time = max(
+                            screenshot_interval_time - (time.time() - self.last_screenshot_time),
+                            0,
+                        )
+                        time.sleep(wait_time)
 
-                with self._screenshot_lock:
-                    result = ScreenShot.take_screenshot(gray)
-                    self._remember_screenshot(result)
+                    with self._screenshot_lock:
+                        result = ScreenShot.take_screenshot(gray)
+                        self._remember_screenshot(result)
                 if result:
                     self.screenshot = result
                     self.last_screenshot_time = time.time()
+                    self._watch_frozen(result)
                     return result
                 else:
                     return None
@@ -391,6 +494,71 @@ class Automation(metaclass=SingletonMeta):
                 init_game()
                 start_time = time.time()
 
+    def wait_freezes(self, target=None, time_ms: int = 100, threshold: float = 0.95, timeout: float = 2.0) -> bool:
+        """参考 MaaFramework 的 wait_freezes：连续截图，直到 target 区域连续 time_ms 毫秒没有明显变化。
+
+        target 为 (x1, y1, x2, y2)，None 时比较整个画面（缩小后）。“没有明显变化”指前后两帧
+        TM_CCOEFF_NORMED 相似度 >= threshold（MaaFramework 默认 0.95）。超过 timeout 秒仍在变化返回 False。
+        """
+        deadline = time.time() + timeout
+        prev = None
+        prev_time = 0.0
+        still_since = None
+        while True:
+            while self.take_screenshot() is None:
+                continue
+            now = time.time()
+            img = self.screenshot.convert("L")
+            img = img.crop(target) if target is not None else img.resize((640, 360))
+            cur = np.asarray(img, dtype=np.float32)
+            if prev is not None and (
+                np.array_equal(prev, cur)
+                or float(cv2.matchTemplate(cur, prev, cv2.TM_CCOEFF_NORMED)[0][0]) >= threshold
+            ):
+                still_since = still_since or prev_time
+                if now - still_since >= time_ms / 1000:
+                    return True
+            else:
+                still_since = None
+            prev, prev_time = cur, now
+            if now > deadline:
+                return False
+
+    def take_color_snapshot(self) -> np.ndarray | None:
+        """额外截一张彩色图（RGB），不替换 self.screenshot，供需要颜色的判断使用。
+
+        模拟器的彩色截图实际是 BGR：MuMu 实测（与 adb screencap 对比：红蓝互换后差异 25.7 -> 13.9），
+        其他模拟器走 adb_screenshot 的 cv2.imdecode，本来就是 BGR。这里统一成 RGB。
+        """
+        with self._screenshot_lock:
+            img = ScreenShot.take_screenshot(False)
+        if img is None:
+            return None
+        return self._to_rgb(img)
+
+    @staticmethod
+    def _to_rgb(img: Image) -> np.ndarray:
+        """彩色截图转成真正的 RGB 数组（模拟器截图的通道是 BGR）。"""
+        color = np.asarray(img.convert("RGB"))
+        return color[:, :, ::-1] if cfg.simulator else color
+
+    def wait_until(self, condition, timeout: float):
+        """连续截图直到 condition() 为真或超过 timeout 秒，返回 condition() 最后一次的结果。
+
+        用来代替“输入后固定 sleep”。condition 应检查输入前不成立的状态（例如新出现的弹窗、
+        已消失的按钮），否则可能在输入前的旧画面上立即成立。
+        """
+        deadline = time.time() + timeout
+        while True:
+            # 以截图开始的时刻判断超时：截图慢（LDPlayer 的 adb 约 1.7 秒）时，第一张图可能在输入生效前就开始截了，
+            # 必须看过一张开始于截止时间之后的图才放弃
+            started = time.time()
+            while self.take_screenshot() is None:
+                continue
+            result = condition()
+            if result or started > deadline:
+                return result
+
     def find_element(
         self,
         target,
@@ -402,6 +570,7 @@ class Automation(metaclass=SingletonMeta):
         my_crop=None,
         min_dist=10,
         additional_stack=0,
+        full_scale=False,
     ):
         """
         查找元素，并根据指定的查找类型执行不同的查找策略。
@@ -438,6 +607,7 @@ class Automation(metaclass=SingletonMeta):
                         model=model,
                         my_crop=my_crop,
                         additional_stack=additional_stack,
+                        full_scale=full_scale,
                     )
                 elif find_type == "text":
                     # 使用文本查找方法查找元素
@@ -508,12 +678,17 @@ class Automation(metaclass=SingletonMeta):
                 return ocr_dict[text]
         return False
 
-    def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0):
-        if my_crop is not None:
+    def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0, fast=False):
+        # 同一张截图、同一裁剪区域连续识别时复用上次结果（如先查白棉花再查已持有）
+        cached = getattr(self, "_last_ocr", None)
+        if cached is not None and cached[0] is self.screenshot and cached[1] == (my_crop, fast):
+            ocr_result = cached[2]
+        elif my_crop is not None:
             cropped_image = self.screenshot.crop(my_crop)
-            ocr_result = ocr.run(cropped_image)
+            ocr_result = ocr.run(cropped_image, fast=fast)
         else:
-            ocr_result = ocr.run(self.screenshot)
+            ocr_result = ocr.run(self.screenshot, fast=fast)
+        self._last_ocr = (self.screenshot, (my_crop, fast), ocr_result)
 
         if not ocr_result.txts:
             return False if only_text else {}
@@ -561,6 +736,7 @@ class Automation(metaclass=SingletonMeta):
         my_crop=None,
         all_text=False,
         additional_stack=0,
+        fast=False,
     ):
         """
         按当前语言状态查找中英文文本，并在语言未知时用命中结果同步语言。
@@ -581,7 +757,7 @@ class Automation(metaclass=SingletonMeta):
         Returns:
             文本命中结果，返回格式同 find_text_element；未命中返回 False。
         """
-        ocr_dict = self._run_ocr_for_text(my_crop=my_crop, additional_stack=additional_stack)
+        ocr_dict = self._run_ocr_for_text(my_crop=my_crop, additional_stack=additional_stack, fast=fast)
         if ocr_dict == {}:
             return False
 
@@ -604,13 +780,15 @@ class Automation(metaclass=SingletonMeta):
 
         return False
 
-    def find_text_element(self, target, my_crop=None, all_text=False, only_text=False, additional_stack=0):
+    def find_text_element(self, target, my_crop=None, all_text=False, only_text=False, additional_stack=0, fast=False):
         """
         寻找文本元素所在的坐标位置。
 
         str/list 目标返回坐标；dict 目标返回 TextMatchResult。
         """
-        ocr_result = self._run_ocr_for_text(my_crop=my_crop, only_text=only_text, additional_stack=additional_stack)
+        ocr_result = self._run_ocr_for_text(
+            my_crop=my_crop, only_text=only_text, additional_stack=additional_stack, fast=fast
+        )
         if only_text:
             return ocr_result
         return self._find_target_in_ocr_dict(target, ocr_result, all_text=all_text)
@@ -777,6 +955,37 @@ class Automation(metaclass=SingletonMeta):
         if path_changed:
             self.clear_img_cache()
 
+    def _scaled_screenshot(self, scale: float) -> np.ndarray:
+        """按 recognition_scale 缩小当前截图；同一张截图只缩放一次。"""
+        cached = getattr(self, "_scaled_shot_cache", None)
+        if cached is not None and cached[0] is self.screenshot and cached[1] == scale:
+            return cached[2]
+        small = cv2.resize(np.array(self.screenshot), None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        self._scaled_shot_cache = (self.screenshot, scale, small)
+        return small
+
+    def _scaled_template(self, target, path, template, bbox, scale):
+        """按 recognition_scale 缩小模板与 bbox，结果按 (模板, 路径, 比例) 缓存。"""
+        key = ("scaled", target, path, scale)
+        if key in self.img_cache:
+            cached = self.img_cache[key]
+            return cached["template"], cached["bbox"]
+        small = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        small_bbox = tuple(int(v * scale) for v in bbox) if bbox else None
+        self.img_cache[key] = {"template": small, "bbox": small_bbox}
+        return small, small_bbox
+
+    @staticmethod
+    def _prefer_known_language(paths: list[str]) -> list[str]:
+        """语言已确定为中文且该图片有 zh_cn 版本时，跳过 en 版本，避免同一模板比对两次。
+
+        英文已确定时 zh_cn 路径会被淘汰（eliminate_zh_cn_paths），这里补上对称的中文情况；
+        zh_cn 缺图时仍保留 en 作为回退。
+        """
+        if path_manager.current_language != "zh_cn" or not any(path_manager.is_path_zh_cn(p) for p in paths):
+            return paths
+        return [p for p in paths if not p.endswith("/en")]
+
     @staticmethod
     def _path_state_is_known() -> bool:
         return path_manager.current_theme is not None and path_manager.current_language is not None
@@ -789,9 +998,12 @@ class Automation(metaclass=SingletonMeta):
         model="clam",
         my_crop=None,
         additional_stack=0,
+        full_scale=False,
     ):
         """
         在当前截图中查找目标图像的位置
+
+        full_scale: 忽略 recognition_scale 以原尺寸匹配（用于出售等不可逆操作，缩小后小图标更容易误配）
         """
         try:
             if self.memory_protection:
@@ -802,22 +1014,31 @@ class Automation(metaclass=SingletonMeta):
                     log.debug(f"当前系统内存总占用率: {current_percent}%，释放图片缓存")
                     self.clear_img_cache()
 
-            existing_paths = ImageUtils.existing_image_paths(target)
+            existing_paths = self._prefer_known_language(ImageUtils.existing_image_paths(target))
             if not existing_paths:
                 log.error(f"未找到图片： {target} ")
                 log.debug(f"无法加载图片: {target}", stacklevel=additional_stack + 3)
                 return None
 
-            screenshot = np.array(self.screenshot)
+            scale = cfg.recognition_scale if cfg.recognition_scale and 0 < cfg.recognition_scale < 1 else 1.0
+            if full_scale:
+                scale = 1.0
+            screenshot = self._scaled_screenshot(scale) if scale < 1 and not my_crop else np.array(self.screenshot)
             if my_crop:
                 screenshot = ImageUtils.crop(screenshot, my_crop)
+                if scale < 1:
+                    screenshot = cv2.resize(screenshot, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
             results = []
             for loaded_path in existing_paths:
                 template, bbox = self._load_template_for_path(target, loaded_path, cacheable)
                 if template is None:
                     continue
-                center, matchVal = ImageUtils.match_template(screenshot, template, bbox, model)
+                if scale < 1:
+                    template, bbox = self._scaled_template(target, loaded_path, template, bbox, scale)
+                center, matchVal = ImageUtils.match_template(screenshot, template, bbox, model, scale=scale)
+                if scale < 1:
+                    center = (int(center[0] / scale), int(center[1] / scale))
                 matched = self._is_valid_match(matchVal, threshold)
                 if 0.70 < matchVal < 0.90 and int(matchVal * 1000 + 1e-9) % 10 >= 5:
                     match_fmt = ".3f"
@@ -852,10 +1073,9 @@ class Automation(metaclass=SingletonMeta):
 
     def get_screenshot_crop(self, crop):
         """
-        获取指定区域的彩色截图
+        获取指定区域的彩色截图（BGR，与 tasks.sins 的颜色表一致）
         """
         self.take_screenshot(False)
-        screenshot = np.array(self.screenshot)
-        screenshot = screenshot[:, :, ::-1]
+        screenshot = self._to_rgb(self.screenshot)[:, :, ::-1]
         screenshot = ImageUtils.crop(screenshot, crop)
         return screenshot

@@ -20,6 +20,8 @@ from utils.image_utils import ImageUtils
 from utils.utils import find_skill3
 
 DEFENSE_FOR_SOLO_TURN_LIMIT = 5
+# 全员防御拖动后等待回合开始的上限（秒）
+DEFENSE_TURN_START_TIMEOUT = 5.0
 
 
 @dataclass
@@ -43,6 +45,7 @@ class Battle:
         self.defense_all_time = False
         self.fail_times = 0
         self.cur_turn = 1
+        self._last_center_click = 0.0
         self.is_tool = is_tool
         """是否由小工具初始化"""
 
@@ -85,28 +88,6 @@ class Battle:
             if click:
                 break
 
-    @staticmethod
-    def _update_wait_time(time: float = None, fail_flag: bool = False, total_count: int = 1):
-        MAX_WAITING = 3.0  # 最大等待时间
-        MIN_WAITING = 0.5  # 最小等待时间
-        INIT_WAITING = 1.5  # 初始等待时间
-        fail_adjust = 0.5
-        success_adjust = -0.2
-        if time is None:
-            return INIT_WAITING
-
-        total_count = total_count if total_count > 0 else 1  # 防止除0
-        adjust = fail_adjust if fail_flag else success_adjust
-        new_time = time + adjust / (total_count**0.5)  # 平方根调整
-
-        new_time = min(new_time, MAX_WAITING)  # 防止超过最大等待时间
-        new_time = max(new_time, MIN_WAITING)  # 防止低于最小等待时间
-        if fail_flag:
-            msg = f"匹配失败，等待时间从{time:.3f}调整为{new_time:.3f}"
-            log.debug(msg)
-
-        return new_time
-
     def _battle_operation(
         self,
         first_turn: bool,
@@ -133,29 +114,28 @@ class Battle:
                 msg = f"小指良单通连续防御（剩余{defense_for_solo_state.remaining_turns}回合），开始战斗"
             else:
                 msg = "第一回合全员防御，开始战斗"
-            if self._defense_this_round() is False:
+            # 回合真正开始才算防御成功；出错或未被游戏接受时改用 P+Enter，且不扣除连续防御回合。
+            # 防御拖动后回合开始偶尔超过 3 秒，等 5 秒，避免回合已开始时又按 P+Enter
+            if not (self._defense_this_round() and self._wait_turn_started(DEFENSE_TURN_START_TIMEOUT)):
                 if use_limited_defense:
-                    msg = "小指良单通连续防御失败，本回合改为P+Enter"
+                    msg = "小指良单通连续防御失败，本回合改为P+Enter（不扣除防御回合）"
                 else:
                     msg = "第一回合全员防御失败，本场战斗改为P+Enter"
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
+                self._wait_turn_started()
             elif use_limited_defense:
                 defense_for_solo_state.consume_turn()
                 limited_defense_succeeded = True
                 log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
                 if defense_for_solo_state.remaining_turns == 0:
                     log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
-            sleep(2)
-            if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
-                auto.key_press("p")
-                sleep(0.5)
-                auto.key_press("enter")
         elif self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
-                self._defense_this_round()
+                if self._defense_this_round():
+                    self._wait_turn_started(DEFENSE_TURN_START_TIMEOUT)
         elif (avoid_skill_3 or prioritize_skill_3) and auto.find_element(
             "battle/gear_left.png", threshold=0.9
         ):
@@ -167,8 +147,7 @@ class Battle:
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
-            sleep(2)
-            if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
+            if not self._wait_turn_started():
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
@@ -177,18 +156,16 @@ class Battle:
             sleep(0.5)
             auto.key_press("enter")
             msg = "使用P+Enter开始战斗"
-            if self.mouse_click_rate:
+            # 等回合真正开始再返回，否则下一轮可能拿到出招前的画面而再出招一次
+            if self.mouse_click_rate or not self._wait_turn_started():
+                # P+Enter 未能开始回合：改用点击胜率卡+右齿轮，此后一直使用该方式
+                self.mouse_click_rate = True
                 my_scale = cfg.set_win_size / 1440
-                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
+                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75, take_screenshot=True):
                     pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
                     auto.mouse_click(pos[0], pos[1])
                     auto.click_element("battle/gear_right.png")
-            else:
-                sleep(1)
-                if not auto.find_element("battle/pause_assets.png", threshold=0.75):
-                    self.mouse_click_rate = True
-                else:
-                    self.mouse_click_rate = False
+                    self._wait_turn_started()
         log.debug(msg)
         return limited_defense_succeeded
 
@@ -206,7 +183,6 @@ class Battle:
         prioritize_skill_3=False,
     ):
         chance = self.INIT_CHANCE
-        waiting = self._update_wait_time()
         total_count = 0
         fail_count = 0
         in_mirror = False
@@ -274,7 +250,7 @@ class Battle:
 
             # 如果正在交战过程
             if auto.find_element("battle/pause_assets.png"):
-                sleep(2 * waiting)  # 战斗播片中增大间隔
+                sleep(0.5)  # 战斗播片中：短间隔轮询，暂停按钮一消失就进入下一步（原为随失败次数增长的 2*waiting）
                 chance = self.INIT_CHANCE
                 first_turn = False
                 defense_for_solo_used_this_turn = False
@@ -362,14 +338,12 @@ class Battle:
                 if "turn" in ocr_result:
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     self.identify_keyword_turn = False
                     continue
             elif fail_count >= 5:
-                if auto.click_element("battle/turn_assets.png") or auto.find_element("battle/win_rate_assets.png"):
+                if auto.find_element("battle/turn_assets.png") or auto.find_element("battle/win_rate_assets.png"):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     continue
             else:
                 if auto.find_element("battle/more_information_assets.png") or auto.find_element(
@@ -377,7 +351,6 @@ class Battle:
                 ):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     continue
             if chance < 5:
                 if not infinite_battle:
@@ -393,13 +366,12 @@ class Battle:
                     ocr_result = ""
                 if (
                     "turn" in ocr_result
-                    or auto.click_element("battle/turn_assets.png")
+                    or auto.find_element("battle/turn_assets.png")
                     or auto.find_element("battle/win_rate_assets.png")
                     or auto.find_element("battle/win_rate_card.png", threshold=0.75)
                 ):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
                     continue
             if chance == 1:
                 if not infinite_battle:
@@ -407,16 +379,11 @@ class Battle:
                 if auto.find_language_text("胜率", "rate"):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
-                    sleep(1)
-                    if not auto.find_element("battle/pause_assets.png"):
-                        self.mouse_click_rate = True
                     continue
             if self.mouse_click_rate:
                 if auto.find_element("battle/win_rate_card.png", threshold=0.75):
                     perform_battle_operation()
                     chance = self.INIT_CHANCE
-                    waiting = self._update_wait_time(waiting, False, total_count)
 
             # 如果战斗中途出现事件
             if (
@@ -484,8 +451,11 @@ class Battle:
                 height = cfg.set_win_size
                 center_x = width // 2
                 center_y = height // 2
-                auto.mouse_click(center_x - random_number, center_y + random_number, times=1)
-                sleep(0.15)
+                # 轮询变快后限频：最多每秒点一次，避免误开角色状态页
+                if time.time() - self._last_center_click >= 1.0:
+                    auto.mouse_click(center_x - random_number, center_y + random_number, times=1)
+                    self._last_center_click = time.time()
+                    sleep(0.15)
 
             # 战斗结束，进入结算页面
             if auto.click_element("battle/battle_finish_confirm_assets.png", click=False) or auto.find_element(
@@ -531,9 +501,7 @@ class Battle:
                 return False
 
             chance -= 1
-            sleep(waiting)
-            # 更新等待时间
-            waiting = self._update_wait_time(waiting, True, total_count)
+            sleep(0.3)  # 过场中短间隔轮询（原为随失败次数增长、最长 3 秒的 waiting）
             # 统计失败次数
             fail_count += 1
             if chance < 0:
@@ -671,11 +639,19 @@ class Battle:
             sleep(0.5)
 
             auto.key_press("enter")
-
-            sleep(1)
             return True
         except Exception:
             return False
+
+    @staticmethod
+    def _wait_turn_started(timeout: float = 3.0) -> bool:
+        """出招后等到暂停按钮出现（回合开始执行）；超过 timeout 仍未出现返回 False。"""
+        deadline = time.time() + timeout
+        while True:
+            if auto.find_element("battle/pause_assets.png", take_screenshot=True):
+                return True
+            if time.time() > deadline:
+                return False
 
     @staticmethod
     def _defense_this_round(move_back: bool = False) -> bool:
@@ -698,7 +674,7 @@ class Battle:
             for skill in skill_list:
                 auto.mouse_click(skill[0], skill[1])
                 if cfg.simulator:
-                    sleep(cfg.mouse_action_interval)
+                    sleep(0.1)
                 else:
                     sleep(cfg.mouse_action_interval // 1.5)
 
@@ -708,8 +684,6 @@ class Battle:
             auto.mouse_drag_link(skill_list)
 
             auto.mouse_to_blank(move_back=move_back)
-
-            sleep(1)
             return True
         except Exception:
             return False

@@ -230,6 +230,7 @@ class CaptureNemuIpc(CaptureStd):
 
 
 class MumuControl(AbstractInput):
+    NO_OP_INPUTS = frozenset({"mouse_scroll", "mouse_to_blank", "mouse_move"})
     connection_device = None
     _SUPPORTED_DLL_VERSIONS = ("12.0", "15.0")
     _NEMU_CONNECT_RETRY_THRESHOLD = 3
@@ -1168,7 +1169,7 @@ class MumuControl(AbstractInput):
         y2 = y + int(300 * scale * reverse)
         self.swipe(x1=x, y1=y, x2=x2, y2=y2, duration=0.4)
 
-    def mouse_drag(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True) -> None:
+    def mouse_drag(self, x, y, drag_time=0.1, dx=0, dy=0, move_back=True, point_sleep=0.020, hold=None) -> None:
         """鼠标从指定位置拖动到另一个位置
         Args:
             x (int): 起始x坐标
@@ -1185,9 +1186,12 @@ class MumuControl(AbstractInput):
 
         for point in points:
             self.down(*point)
-            time.sleep(0.020)
+            time.sleep(point_sleep)
 
-        if drag_time * 0.3 > 0.5:
+        # 抬起前停住，让地图等惯性停下；hold 为 None 时沿用原规则
+        if hold is not None:
+            time.sleep(hold)
+        elif drag_time * 0.3 > 0.5:
             time.sleep(drag_time * 0.3)
         else:
             time.sleep(0.5)
@@ -1302,7 +1306,7 @@ class MumuControl(AbstractInput):
         """占位"""
         return 0, 0
 
-    def mouse_drag_link(self, position: list, drag_time=0.25, min_distance=10, move_back=False) -> None:
+    def mouse_drag_link(self, position: list, drag_time=0.1, min_distance=10, move_back=False) -> None:
         """鼠标从指定位置拖动到指定位置
         Args:
             x (int): 起始x坐标

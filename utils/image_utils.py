@@ -209,8 +209,10 @@ class ImageUtils:
         return cl1
 
     @staticmethod
-    def match_template(screenshot, template, bbox, model="clam"):
+    def match_template(screenshot, template, bbox, model="clam", scale=1.0):
+        """scale: 截图与模板已按此比例缩小时传入，搜索边距随之缩放，保持与原分辨率相同的实际搜索范围。"""
         try:
+            near, far = max(1, round(30 * scale)), max(1, round(100 * scale))
             shape = screenshot.shape
             if len(shape) == 2:
                 height, width = shape
@@ -219,18 +221,18 @@ class ImageUtils:
             if model == "normal":
                 if bbox:
                     bbox = (
-                        max(bbox[0] - 100, 0),  # 确保左上角 x 坐标不小于 0
-                        max(bbox[1] - 100, 0),  # 确保左上角 y 坐标不小于 0
-                        min(bbox[2] + 100, width),  # 确保右下角 x 坐标不大于 图片宽
-                        min(bbox[3] + 100, height),  # 确保右下角 y 坐标不大于 图片高
+                        max(bbox[0] - far, 0),  # 确保左上角 x 坐标不小于 0
+                        max(bbox[1] - far, 0),  # 确保左上角 y 坐标不小于 0
+                        min(bbox[2] + far, width),  # 确保右下角 x 坐标不大于 图片宽
+                        min(bbox[3] + far, height),  # 确保右下角 y 坐标不大于 图片高
                     )
             else:
                 if bbox:
                     bbox = (
-                        max(bbox[0] - 30, 0),  # 确保左上角 x 坐标不小于 0
-                        max(bbox[1] - 30, 0),  # 确保左上角 y 坐标不小于 0
-                        min(bbox[2] + 30, width),  # 确保右下角 x 坐标不大于 图片宽
-                        min(bbox[3] + 30, height),  # 确保右下角 y 坐标不大于 图片高
+                        max(bbox[0] - near, 0),  # 确保左上角 x 坐标不小于 0
+                        max(bbox[1] - near, 0),  # 确保左上角 y 坐标不小于 0
+                        min(bbox[2] + near, width),  # 确保右下角 x 坐标不大于 图片宽
+                        min(bbox[3] + near, height),  # 确保右下角 y 坐标不大于 图片高
                     )
             if bbox is not None and model != "aggressive":
                 screenshot_crop = screenshot[bbox[1] : bbox[3], bbox[0] : bbox[2]]

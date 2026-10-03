@@ -1,5 +1,7 @@
 from time import sleep
 
+import cv2
+import numpy as np
 from PIL import Image
 
 from module.automation import auto
@@ -70,7 +72,69 @@ class Shop:
     class RestartGame(Exception):
         pass
 
-    def ego_gift_to_power_up(self):
+    @staticmethod
+    def _power_up_confirm_enabled() -> bool:
+        """升级确认框的 Confirm 是否可按（钱够）。
+
+        灰色与可按的按钮形状相同，模板匹配都是 0.999，只能看亮度：
+        实测可按时按钮区 95 分位亮度约 206，钱不够变灰时约 56。
+        """
+        scale = cfg.set_win_size / 1440
+        box = tuple(v * scale for v in (1533, 1151, 1684, 1183))
+        button = np.asarray(auto.screenshot.convert("L").crop(box))
+        return float(np.percentile(button, 95)) > 120
+
+    @staticmethod
+    def _gift_tier(gift, color) -> int:
+        """升级列表中该饰品已强化的等级：0、1（+）或 2（++），看格子右上角的橘色十字。
+
+        gift 为体系图标（格子右下角）的位置，格子中心约在其左上 (58, 59)。实测（2560x1440）：
+        + 为 1 块约 36x35、面积约 560；++ 为 2 块各约 28x29、面积约 350；
+        被选中格子的橘框是高约 7 的细线，不计入。
+        """
+        if color is None:
+            return 0
+        scale = cfg.set_win_size / 1440
+        cx, cy = gift[0] - 58 * scale, gift[1] - 59 * scale
+        x0, x1 = int(cx - 5 * scale), int(cx + 75 * scale)
+        y0, y1 = int(cy - 75 * scale), int(cy - 25 * scale)
+        region = color[max(y0, 0) : y1, max(x0, 0) : x1].astype(np.int16)
+        r, g, b = region[..., 0], region[..., 1], region[..., 2]
+        mask = ((r > 230) & (g > 120) & (g < 230) & (b < 120)).astype(np.uint8)
+        _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        crosses = [s for s in stats[1:] if s[3] >= 20 * scale and s[4] >= 200 * scale * scale]
+        if len(crosses) >= 2:
+            return 2
+        if len(crosses) == 1 and crosses[0][4] >= 450 * scale * scale:
+            return 1
+        return 0
+
+    @staticmethod
+    def _scroll_enhance_list() -> bool:
+        """升级列表往下卷动约两行；列表内容有变化返回 True，已到底返回 False。"""
+        scale = cfg.set_win_size / 1440
+        box = tuple(v * scale for v in (1290, 440, 2180, 960))
+        before = np.asarray(auto.screenshot.convert("L").crop(box), dtype=np.int16)
+        # 从两列格子之间的缝隙往上拖，避免点到饰品；按住片刻再放开，列表不会继续滑动
+        auto.mouse_drag(1641 * scale, 950 * scale, drag_time=0.5, dy=-368 * scale)
+        auto.wait_freezes(target=box, timeout=2)
+        after = np.asarray(auto.screenshot.convert("L").crop(box), dtype=np.int16)
+        return float(np.abs(after - before).mean()) > 3
+
+    @staticmethod
+    def _goods_box():
+        """商店商品列表区域（2560x1440 下约 1040,420 - 2360,1030）"""
+        scale = cfg.set_win_size / 1440
+        return tuple(v * scale for v in (1040, 420, 2360, 1030))
+
+    def _goods_snapshot(self):
+        return np.asarray(auto.screenshot.convert("L").crop(self._goods_box()), dtype=np.int16)
+
+    def ego_gift_to_power_up(self, tier=None):
+        """升级当前选中的饰品。tier 为它已强化的等级（未知为 None）。
+
+        返回 False 表示应停止升级其他饰品（钱连 + 都不够，或确认框异常）。
+        """
         loop_count = 30
         auto.model = "clam"
         while True:
@@ -78,14 +142,65 @@ class Shop:
             if auto.take_screenshot() is None:
                 continue
             auto.mouse_to_blank()
+
+            # 提示是细红字，半尺寸识别只有 0.75，需全尺寸（约 0.93）
+            def cannot_toast():
+                return auto.find_element("mirror/shop/cannot_enhance_assets.png", full_scale=True)
+
+            # 提示会停留一阵：点击前已在画面上的是上一个饰品留下的，不能当作这次的结果
+            stale_toast = cannot_toast()
             if auto.click_element("mirror/shop/power_up_assets.png"):
                 auto.mouse_to_blank()
-                sleep(0.5)
-                if auto.click_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True) is False:
+                # 能升级会弹出确认框（带“强化等级 + / ++”选项）；不能升级（满级或连 + 的钱都不够）
+                # 只在右上角弹出“Cannot Enhance”提示。两者谁先出现就按谁处理，不必等满 1 秒
+                dialog = auto.wait_until(
+                    lambda: auto.find_element("mirror/shop/enhance_tier_assets.png")
+                    or (not stale_toast and cannot_toast() and "cannot"),
+                    1,
+                )
+                if not dialog or dialog == "cannot":
                     return True
-                sleep(3)
+                scale = cfg.set_win_size / 1440
+                # 右上角的金额预览（如 94 ▸ 44），选不同等级时会变化
+                preview_box = tuple(v * scale for v in (1880, 150, 2200, 260))
+
+                def preview():
+                    return np.asarray(auto.screenshot.convert("L").crop(preview_box), dtype=np.int16)
+
+                # 先选 ++ 一次升到满级；钱不够（确认按钮变灰）改选 +；+ 也不够就停止升级其他饰品。
+                # 已是 + 的饰品只能升到 ++：钱不够只跳过它，其他未强化的饰品升到 + 可能还够
+                # 确认框淡入期间预览也在变，先等它静止再作为点击前的基准
+                auto.wait_freezes(target=preview_box)
+                for tier_choice in ("++",) if tier == 1 else ("++", "+"):
+                    x = 2060 if tier_choice == "++" else 1814
+                    before = preview()
+                    auto.mouse_click(x * scale, 1022 * scale)
+                    # 等金额预览按所选等级刷新；该等级已选中或不可选时预览不变，最多等 0.5 秒
+                    auto.wait_until(lambda: np.abs(preview() - before).mean() > 2, 0.5)
+                    if self._power_up_confirm_enabled():
+                        break
+                else:
+                    auto.mouse_click(1008 * scale, 1164 * scale)  # 取消
+                    auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
+                    if tier == 1:
+                        log.debug("剩余金钱不足以把此饰品升到 ++，跳过")
+                        return True
+                    log.debug("剩余金钱不足以升级，停止升级其他饰品")
+                    return False
+                # 确认后等确认框关闭（升级完成）。切换等级的动画中点击可能无效，确认框没关就再点一次
+                for _ in range(2):
+                    auto.click_element("mirror/shop/power_up_confirm_assets.png", pre_wait_freezes=100)
+                    if auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1.5):
+                        break
+                else:
+                    log.debug("升级确认未生效，取消并停止升级")
+                    auto.mouse_click(1008 * scale, 1164 * scale)  # 取消
+                    auto.wait_until(lambda: not auto.find_element("mirror/shop/enhance_tier_assets.png"), 1)
+                    return False
                 if retry() is False:
                     raise self.RestartGame()
+                log.debug(f"饰品升级到 {tier_choice}")
+                return True
             if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
                 return False
             loop_count -= 1
@@ -230,28 +345,26 @@ class Shop:
                 while system_gift:
                     gift = system_gift.pop(0)
                     auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
-                    sleep(1)
-                    while auto.take_screenshot() is None:
-                        continue
+                    auto.wait_until(lambda: auto.find_element("mirror/shop/purchase_assets.png"), 1)
                     if self.system == "bleed" and not cfg.not_skip_whitegossypium:
                         if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
                             auto.mouse_click_blank(times=2)
                         sleep(1)
                     if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                        sleep(1)
-                        auto.click_element(
-                            "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                            take_screenshot=True,
+                        auto.wait_until(
+                            lambda: auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 1
                         )
+                        auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png")
                         complete_count += 1
                         system_gift = re_sort_points(system_gift)
                         auto.mouse_click_blank(times=3)
                         continue
                     else:
-                        if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png",take_screenshot=True):
-                            sleep(0.5)
+                        auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", take_screenshot=True)
                         auto.mouse_click_blank(times=3)
-                        sleep(1)
+                        auto.wait_until(
+                            lambda: not auto.find_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png"), 1.5
+                        )
 
             if self.second_system and self.second_system_action[1]:
                 if self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True):
@@ -297,17 +410,14 @@ class Shop:
             elif keyword_refresh_count < self.max_keyword_refresh and my_remaining_money >= 300:
                 auto.mouse_click_blank(times=3)
                 if auto.click_element("mirror/shop/refresh_keyword_assets.png"):
-                    sleep(1)
-                    auto.click_element(
-                        f"mirror/shop/keyword/keyword_{self.system}.png",
-                        take_screenshot=True,
-                    )
+                    auto.wait_until(lambda: auto.find_element(f"mirror/shop/keyword/keyword_{self.system}.png"), 1)
+                    auto.click_element(f"mirror/shop/keyword/keyword_{self.system}.png")
                     sleep(0.5)
                     auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
                     for _ in range(3):
-                        if auto.find_element(
-                            "mirror/shop/refresh_keyword_confirm_assets.png",
-                            take_screenshot=True,
+                        # 等面板关闭（最多 1.5 秒）仍未关闭才算未生效；只截一张图会拿到点击前的画面而误判
+                        if not auto.wait_until(
+                            lambda: not auto.find_element("mirror/shop/refresh_keyword_confirm_assets.png"), 1.5
                         ):
                             log.debug("关键词刷新确认未生效，重试中")
                             sleep(0.5)
@@ -324,7 +434,8 @@ class Shop:
                             break
                     keyword_refresh_count += 1
                     auto.mouse_click_blank()
-                    sleep(3)
+                    # 实测确认后约 1 秒面板关闭时商品已刷新完毕；等商品区静止即可（原为固定 3 秒）
+                    auto.wait_freezes(target=self._goods_box(), timeout=3)
                     if retry() is False:
                         raise self.RestartGame()
                     if self.skill_replacement and self.replacement < 3:
@@ -333,9 +444,12 @@ class Shop:
 
             if normal_refresh_count < self.max_normal_refresh and my_remaining_money >= 200:
                 auto.mouse_click_blank(times=3)
+                goods_before = self._goods_snapshot()
                 if auto.click_element("mirror/shop/refresh_assets.png"):
                     normal_refresh_count += 1
-                    sleep(3)
+                    # 先等商品区与点击前不同（已刷新），再等它静止；合计最多约 3 秒（原为固定 3 秒）
+                    auto.wait_until(lambda: float(np.abs(self._goods_snapshot() - goods_before).mean()) > 2, 2)
+                    auto.wait_freezes(target=self._goods_box(), timeout=1)
                     if retry() is False:
                         raise self.RestartGame()
                     if self.skill_replacement and self.replacement < 3:
@@ -817,14 +931,17 @@ class Shop:
             if auto.click_element("mirror/shop/sell_gift_assets.png"):
                 continue
 
-            if auto.click_element("mirror/shop/sell_gift_confirm_assets.png"):
-                sleep(1)
+            # 确认按钮的 ✓ 会随按钮文字长度偏移（英文 Confirm 比中文 确认 长，约左移 34px），
+            # clam 模式搜索范围不够，英文/模拟器下只有 0.79；normal 模式为 0.997
+            if auto.click_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"):
+                auto.wait_until(lambda: not auto.find_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"), 1)
                 continue
 
             if system_sell:
                 for sell_system in self.shop_sell_list:
                     my_sell_system = f"mirror/shop/enhance_gifts/{sell_system}.png"
-                    if sell_gift := auto.find_element(my_sell_system):
+                    # 出售不可逆：原尺寸匹配、门槛 0.9。缩小 + 0.8 时曾把呼吸法饰品以 0.82 误认为突刺而卖掉
+                    if sell_gift := auto.find_element(my_sell_system, threshold=0.9, full_scale=True):
                         if second is not None and protect_coordinates(sell_gift, second):
                             continue
                         else:
@@ -834,7 +951,9 @@ class Shop:
                             "mirror/shop/enhance_and_fuse_and_sell_confirm_assets.png",
                             model="normal",
                         )
-                        sleep(1)
+                        auto.wait_until(
+                            lambda: auto.find_element("mirror/shop/sell_gift_confirm_assets.png", model="normal"), 1
+                        )
                         if retry() is False:
                             raise self.RestartGame()
                         gift_sell = True
@@ -1040,6 +1159,8 @@ class Shop:
             return False
 
         log.debug("开始执行饰品升级模块")
+        # 已升级饰品按坐标记录；饰品排序会随新获得的饰品改变，坐标只在同一次商店内有效
+        self.enhance_gifts_list = []
 
         my_scale = cfg.set_win_size / 1440
         loop_try_count = 10
@@ -1052,7 +1173,7 @@ class Shop:
                 auto.mouse_click(button[0], button[1] + 200 * my_scale)
                 break
             if auto.click_element("mirror/shop/enhance_gifts_assets.png"):
-                sleep(1)
+                auto.wait_until(lambda: auto.find_element("mirror/shop/sort_button_assets.png"), 1)
                 continue
             auto.mouse_click_blank()
             loop_try_count -= 1
@@ -1113,6 +1234,7 @@ class Shop:
                         self.first_gift_enhance = True
                         continue
 
+            stopped = False
             if gifts := auto.find_element(
                 f"mirror/shop/enhance_gifts/{self.system}.png",
                 find_type="image_with_multiple_targets",
@@ -1123,23 +1245,28 @@ class Shop:
                 gifts = _filter_enhance_gift_scan_points(gifts, screen_size)
                 if len(gifts) != raw_count:
                     log.debug(f"升级扫描区域过滤：{raw_count} -> {len(gifts)}")
+                color = auto.take_color_snapshot()
                 for gift in gifts:
-                    if check_enhanced(gift) is False:
-                        auto.mouse_click(gift[0], gift[1])
-                        if self.ego_gift_to_power_up() is False:
-                            next_gift = False
-                            break
-                        else:
-                            self.enhance_gifts_list.append(gift)
-                    else:
+                    if check_enhanced(gift):
                         continue
+                    tier = self._gift_tier(gift, color)
+                    if tier == 2:
+                        log.debug(f"饰品已是 ++，跳过：{gift}")
+                        continue
+                    auto.mouse_click(gift[0], gift[1])
+                    if self.ego_gift_to_power_up(tier) is False:
+                        stopped = True
+                        break
+                    self.enhance_gifts_list.append(gift)
                     next_gift = False
+            if stopped:
+                break
 
-            # if list_block is False and auto.find_element("mirror/shop/gifts_list_block.png"):
-            #     block_position = auto.find_element("mirror/shop/gifts_list_block.png")
-            #     auto.mouse_drag(block_position[0], block_position[1], drag_time=1, dy=500)
-            #     list_block = True
-            #     continue
+            # 当前可见的饰品处理完：列表往下卷动继续；卷不动（已到底）才结束
+            if self._scroll_enhance_list():
+                self.enhance_gifts_list = []  # 卷动后坐标改变
+                stale_count = 0
+                continue
 
             if next_gift is False:
                 break
@@ -1218,14 +1345,17 @@ class Shop:
                 for i in range(sinner_nums)
                 if (i + 1) in self.sinner_team
             ]
-            if auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox):
+            if auto.find_language_text(sinner_zh, sinner_en, my_crop=bbox, fast=True):
                 auto.mouse_click(module_position[0], module_position[1] - 100 * my_scale)
-                sleep(0.5)
-                coins = auto.find_element(
-                    "mirror/shop/skill_replacement_coins.png",
-                    find_type="image_with_multiple_targets",
-                    take_screenshot=True,
-                )
+
+                def three_coins():
+                    found = auto.find_element(
+                        "mirror/shop/skill_replacement_coins.png",
+                        find_type="image_with_multiple_targets",
+                    )
+                    return found if len(found) == 3 else []
+
+                coins = auto.wait_until(three_coins, 1)
                 if len(coins) != 3:
                     return
                 coins = sorted(coins, key=lambda x: x[0])
@@ -1234,6 +1364,8 @@ class Shop:
                 sleep(0.5)
                 auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
                 auto.click_element("mirror/shop/skill_replacement_confirm_assets.png")
+                # 等替换面板关闭，否则接着读金钱会读到面板上的文字
+                auto.wait_until(lambda: not three_coins(), 2)
                 # 检测游戏是否异常，若异常则重启游戏
                 if retry() is False:
                     raise self.RestartGame()
@@ -1352,8 +1484,8 @@ class Shop:
                     continue
 
                 auto.mouse_click_blank(times=3)
-                auto.click_element("mirror/shop/return_assets.png")
-                sleep(1)
+                if auto.click_element("mirror/shop/return_assets.png"):
+                    auto.wait_until(lambda: not auto.find_element("mirror/shop/return_assets.png"), 1)
 
                 if self.skill_replacement and skill is False:
                     self.replacement_skill()
@@ -1425,7 +1557,7 @@ class Shop:
                 if auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
                     continue
                 if auto.click_element("mirror/shop/leave_assets.png"):
-                    sleep(1)
+                    auto.wait_until(lambda: auto.find_element("mirror/shop/leave_shop_confirm_assets.png"), 1)
                     continue
                 if auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
                     continue

@@ -50,7 +50,11 @@ after_completion_power_action: "none" # 脚本结束后的最终动作（单选�
 
 # 脚本运行速度设置
 screenshot_interval: 0.85 # 截图间隔时间
-mouse_action_interval: 0.5 # 鼠标操作间隔时间
+screenshot_stable_detect: False # 画面静止检测（开启后画面静止即返回截图，截图间隔变为上限）
+screenshot_min_interval: 0.1 # 画面静止检测时的最短截图间隔
+post_input_min_wait: 0.15 # 画面静止检测：输入后至少等待多久才接受“静止”（太短可能拿到点击前的画面而重复点击）
+recognition_scale: 1.0 # 模板匹配缩放比例（1.0 为不缩放，0.5 为缩小一半以加快识别）
+mouse_action_interval: 0.3 # 鼠标操作间隔时间
 mouse_down_duration: 0.1 # 鼠标按下持续时间
 use_post_message: False # 是否使用PostMessage进行输入
 

@@ -386,7 +386,8 @@ class Automation(metaclass=SingletonMeta):
     def _watch_frozen(self, img: Image) -> None:
         thumb = self._thumbnail(img)
         prev = getattr(self, "_frozen_watch_thumb", None)
-        if prev is None or float(np.abs(thumb - prev).mean()) > 0.5:
+        # 卡死的画面逐像素不变；看局部最大差而非平均差，否则只有进度条在走的加载画面会被当成卡死
+        if prev is None or int(np.abs(thumb - prev).max()) > 8:
             self._last_screen_change = time.time()
         self._frozen_watch_thumb = thumb
 

@@ -20,6 +20,7 @@ from .bluestacks_control import (
     BlueStacksLauncher,
     is_local_adb_host,
 )
+from .ldopengl import try_ldopengl
 from .pyminitouch import MNTDevice
 
 T = TypeVar("T")
@@ -130,6 +131,9 @@ class SimulatorControl(AbstractInput):
         self.simulator_bluestacks = False
         self.bluestacks_launcher = None
         self.bluestacks_instance = None
+        # LDPlayer 的 ldopengl 截图（约 10 ms/张，adb 约 1.7 s）；不可用时为 None，过一段时间再试
+        self._ldopengl = None
+        self._ldopengl_retry_at = 0.0
 
         self.game_package_name = "com.ProjectMoon.LimbusCompany"
 
@@ -500,7 +504,29 @@ class SimulatorControl(AbstractInput):
 
         raise RuntimeError("无法连接到模拟器设备，原因未知")
 
+    def _ldopengl_screenshot(self):
+        """LDPlayer 上直接读渲染缓冲；不可用或失败时返回 None，由调用方改用 adb。"""
+        if cfg.simulator_type == BLUESTACKS_SIMULATOR_TYPE or not is_local_adb_host(cfg.simulator_host):
+            return None
+        if self._ldopengl is None:
+            if time() < self._ldopengl_retry_at:
+                return None
+            self._ldopengl_retry_at = time() + 30
+            self._ldopengl = try_ldopengl(int(cfg.simulator_port))
+            if self._ldopengl is None:
+                return None
+        try:
+            return self._ldopengl.screenshot()
+        except Exception as e:
+            # 模拟器重启后旧实例失效：先改用 adb，稍后重新建立
+            log.debug(f"ldopengl 截图失败，暂时改用 adb：{e}")
+            self._ldopengl = None
+            return None
+
     def screenshot(self):
+        if (image := self._ldopengl_screenshot()) is not None:
+            return image
+
         def _screenshot():
             if self.simulator_device is None:
                 self.get_simulator()

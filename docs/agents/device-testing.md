@@ -34,4 +34,5 @@ To run a bench on a screen the mirror reaches (e.g. the floor map for `drag_benc
 
 - **MuMu/Limbus freezes** happened twice in one run (identical screencaps 15 s apart, game process alive). Since `3af2640`/`c72c18d` AALC restarts the game after 20 s of no screen change under input; before that the user restarted by hand and AALC resumed.
 - `adb devices` empty after a run → `adb connect 127.0.0.1:16384`.
+- **LDPlayer 9** (`simulator_type: 10`, port 5555, `cap.sh` with `ADB_SERIAL=127.0.0.1:5555`): AALC captures through `ldopengl64.dll` (~10 ms; adb screencap ~1.7 s). The user found the game itself runs slowly there and prefers MuMu. A device that has never opened the Mirror Dungeon shows a first-visit guide (closed with Esc since `a1faff4`). Its memory setting is 6 GB; with WSL and browsers open the host has run out of memory and Claude Code reaped the runner twice.
 - Shell hooks in this repo refuse compound commands that mix git/gh with variables or pipes from a worktree session; run them as plain single commands.

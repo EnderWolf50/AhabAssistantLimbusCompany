@@ -1579,9 +1579,12 @@ class Mirror:
         scale = cfg.set_win_size / 1440
         if panel_open():
             # 每个 CLEAR 标记代表一层已通关，因此当前层数为标记数加一
+            # CLEAR 模板只有 35x13，1080p 缩到 26x10 后部分标记只有 0.79（MuMu/LD 实测把第 4 层认成第 2 层）；
+            # 画面其他位置最高约 0.48，阈值 0.7 两边都有余量
             clear_floors = auto.find_element(
                 "mirror/road_in_mir/clear_floor.png",
                 find_type="image_with_multiple_targets",
+                threshold=0.7,
                 take_screenshot=True,
                 min_dist=80 * scale,
             )

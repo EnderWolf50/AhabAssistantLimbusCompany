@@ -547,10 +547,13 @@ class Automation(metaclass=SingletonMeta):
         """
         deadline = time.time() + timeout
         while True:
+            # 以截图开始的时刻判断超时：截图慢（LDPlayer 的 adb 约 1.7 秒）时，第一张图可能在输入生效前就开始截了，
+            # 必须看过一张开始于截止时间之后的图才放弃
+            started = time.time()
             while self.take_screenshot() is None:
                 continue
             result = condition()
-            if result or time.time() > deadline:
+            if result or started > deadline:
                 return result
 
     def find_element(

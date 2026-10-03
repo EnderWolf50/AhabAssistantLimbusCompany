@@ -504,7 +504,8 @@ class SimulatorControl(AbstractInput):
         def _screenshot():
             if self.simulator_device is None:
                 self.get_simulator()
-            data = self.simulator_device.shell(["screencap", "-p"], stream=False, encoding=None)
+            # adbutils 默认 600 秒超时：adb 卡住时会整整等 10 分钟（LDPlayer 实测），正常一张约 1.7 秒
+            data = self.simulator_device.shell(["screencap", "-p"], stream=False, encoding=None, timeout=10)
             if len(data) < 500:
                 raise RuntimeError(f"意外截图: {data}")
             image = np.frombuffer(data, np.uint8)

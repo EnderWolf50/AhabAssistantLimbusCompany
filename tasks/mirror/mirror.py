@@ -269,12 +269,11 @@ class Mirror:
                 try:
                     if self.floor != 1:
                         if self.floor_times[self.floor - 2] > 0:
-                            floor_time = time.time() - self.floor_times[self.floor - 2]
-                            msg = f"启动后第{self.floor}层卡包"
-                        else:
-                            floor_time = time.time() - self.floor_times[0]
+                            to_log_with_time(f"启动后第{self.floor}层卡包", time.time() - self.floor_times[self.floor - 2])
+                        elif self.floor_times[0] > 0:
                             msg = f"启动后第{self.floor}层卡包，该楼层时间不完整"
-                        to_log_with_time(msg, floor_time)
+                            to_log_with_time(msg, time.time() - self.floor_times[0])
+                        # 中途接续的镜牢没有更早楼层的记录（-9999），不输出耗时
                     self.floor_times[self.floor - 1] = time.time()
                 except:
                     log.info("楼层异常，可能是OCR识别错误，本轮镜牢层间的时间记录无效")
@@ -708,9 +707,8 @@ class Mirror:
             log.debug(team_history)
 
         try:
-            last_floor_time = time.time() - self.floor_times[self.floor - 1]
-            msg = f"启动后第{self.floor}层卡包"
-            to_log_with_time(msg, last_floor_time)
+            if self.floor_times[self.floor - 1] > 0:  # 中途接续时没有本层开始时间
+                to_log_with_time(f"启动后第{self.floor}层卡包", time.time() - self.floor_times[self.floor - 1])
         except:
             log.info("楼层异常，可能是OCR识别错误，本轮镜牢层间的时间记录无效")
 

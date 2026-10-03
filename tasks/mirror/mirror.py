@@ -45,6 +45,8 @@ def to_log_with_time(msg, elapsed_time):
 
 
 class Mirror:
+    EVENT_TIMEOUT = 300  # 单个事件处理的总时长上限（秒）
+
     def __init__(self, team_setting: TeamSetting, team_num: int):
         team_setting = team_setting.model_copy(deep=True)  # 避免修改原始配置
         self.logger = log
@@ -1176,6 +1178,13 @@ class Mirror:
 
             if retry() is False:
                 return False
+
+            # 变灰的 SKIP 仍能匹配，点了之后 continue 会跳过下面的失败计数；画面在动时卡死检测也不会触发。
+            # 正常事件约 5–13 秒，超过这个总时长就走失败流程
+            if time.time() - event_start_time > self.EVENT_TIMEOUT:
+                log.error(f"事件处理超过 {self.EVENT_TIMEOUT} 秒，尝试回到初始界面")
+                back_init_menu()
+                break
 
             # 如果在战斗中或回到镜牢路线图中，则跳出循环
             if auto.find_element("battle/turn_assets.png"):

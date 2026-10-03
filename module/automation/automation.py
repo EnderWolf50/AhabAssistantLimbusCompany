@@ -526,14 +526,15 @@ class Automation(metaclass=SingletonMeta):
     def take_color_snapshot(self) -> np.ndarray | None:
         """额外截一张彩色图（RGB），不替换 self.screenshot，供需要颜色的判断使用。
 
-        MuMu 的彩色截图实际是 BGR（与 adb screencap 对比：红蓝互换后差异 25.7 -> 13.9），这里统一成 RGB。
+        模拟器的彩色截图实际是 BGR：MuMu 实测（与 adb screencap 对比：红蓝互换后差异 25.7 -> 13.9），
+        其他模拟器走 adb_screenshot 的 cv2.imdecode，本来就是 BGR。这里统一成 RGB。
         """
         with self._screenshot_lock:
             img = ScreenShot.take_screenshot(False)
         if img is None:
             return None
         color = np.asarray(img.convert("RGB"))
-        if cfg.simulator and cfg.simulator_type == 0:
+        if cfg.simulator:
             color = color[:, :, ::-1]
         return color
 
